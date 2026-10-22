@@ -230,6 +230,14 @@ func (m Model) sectionWideListCard(entries, tail []string, width, budget int) ([
 // sectionWideDetailCard draws the right column's card: the screen's own prose,
 // cut to the rows the frame leaves with the usual marker, and the screen's own
 // notice under it.
+//
+// The card holds the rows the column was given, not the rows the current prose
+// happens to need. A section screen's prose follows the cursor -- the disk
+// cleaner puts the finding under it first -- so a card measured from the current
+// row would change the composition's height as the cursor walks, and the centred
+// body would climb and fall with it. Holding the column's rows is also what the
+// reference draws: its cards run to the bottom of the body, not to the end of
+// their text.
 func (m Model) sectionWideDetailCard(paragraphs []string, screenNotice string, width, budget int) []string {
 	content := cardContentWidth(width)
 
@@ -254,6 +262,7 @@ func (m Model) sectionWideDetailCard(paragraphs []string, screenNotice string, w
 	if len(body) == 0 {
 		return nil
 	}
+	body = padRows(body, max(len(body), budget-cardChromeRows))
 	return card(m.sectionPaneTitle(), "", width, body)
 }
 

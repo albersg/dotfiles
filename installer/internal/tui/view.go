@@ -567,16 +567,6 @@ func truncateHeaderVital(vital string, width int) string {
 		MeterStyle.Render(cutMarker)
 }
 
-// placeBodyTopMarginMax caps how far placeBody shifts a short body down: the
-// greatest number of blank rows it puts above the body, however much surplus the
-// frame has. Centring alone is right at the 80x24 floor, where it removes the
-// void above the footer, and wrong at scale: a nine-row body in a 57-row frame
-// was centred 24 rows down, so at 227x62 the main menu sat at rows 28-36 with its
-// own header on row 2 and read as content that had fallen to the bottom of the
-// screen. The cap keeps the body under its rule at every size instead. It is a
-// constant with a test, not a number buried in the arithmetic.
-const placeBodyTopMarginMax = 6
-
 // placeBody fits a screen's body into the rows the frame leaves. The body is
 // centred in those rows, so a screen shorter than its frame reads as designed
 // space above and below the content instead of a void between the content and
@@ -584,19 +574,26 @@ const placeBodyTopMarginMax = 6
 // odd one, if any, below: the same placement the splash has always used, so a
 // screen that does not fill its rows cannot drift from it.
 //
-// The margin above the body is capped at placeBodyTopMarginMax rows, so a tall
-// terminal leaves the body just under the rule instead of floating it halfway
-// down the screen. At the 80x24 floor the shift is 5 rows and nothing moves; the
-// cap only takes over where the surplus could not be spent on the body.
+// The centring is uncapped on purpose. An earlier pass capped the margin above
+// the body at six rows, because a nine-row body centred in a 57-row frame sat
+// halfway down the screen; anchored to the rule instead, every screen glued its
+// content to the header and left one large void above the creature, which is the
+// shape the reference screens do not draw. The body is centred in the rows
+// between the header and the footer now -- and above the creature's reserved
+// block (placeBodyAboveCompanion), so the pet keeps the rows it always had.
+//
+// Centring is only safe while a body keeps its height as the cursor walks it: a
+// body that grows by a row moves itself by half a row. Every screen that centres
+// here draws a fixed-height block -- a windowed list, a panel card measured at the
+// tallest its facts get, a card built from the state's own groups -- so the anchor
+// cannot move under the cursor, and the guard in teatest_test.go walks a list to
+// prove it.
 //
 // A body that fills or overflows the rows is left exactly as it is, and is not
 // truncated: a screen that draws more rows than it reserved must fail the frame
 // guard, not be quietly clipped here.
 func placeBody(body []string, rows int) []string {
 	top := (rows - len(body)) / 2
-	if top > placeBodyTopMarginMax {
-		top = placeBodyTopMarginMax
-	}
 	out := make([]string, 0, max(len(body), rows))
 	for i := 0; i < top; i++ {
 		out = append(out, "")
@@ -610,12 +607,13 @@ func placeBody(body []string, rows int) []string {
 
 // placeBodyAboveCompanion places a screen's body in the rows above the
 // companion's reserved block, leaving the last `reserve` rows blank for the
-// creature and its summary. It is the fallback for a frame where the centred body
-// (placeBody) lands in the block: the body moves up only as far as the block
-// needs, and a body too tall for the rows left is left where placeBody put it,
-// because a body that does not fit cannot be made to fit by moving it. The
-// creature's own row does not move either way -- it is always the last rows of
-// the frame -- so the block stays a function of the terminal and not of content.
+// creature and its summary. A screen that reserves those rows centres its body in
+// the rows the block leaves, so the content is centred between the header and the
+// creature rather than between the header and the footer; a body too tall for the
+// rows left is left where placeBody put it, because a body that does not fit
+// cannot be made to fit by moving it. The creature's own row does not move either
+// way -- it is always the last rows of the frame -- so the block stays a function
+// of the terminal and not of content.
 func placeBodyAboveCompanion(body []string, rows, reserve int) []string {
 	if reserve <= 0 || len(body) > rows-reserve {
 		return placeBody(body, rows)
@@ -749,22 +747,16 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 		body = composeColumns(body, m.panelColumn(panels, l, budget), l)
 	}
 
-	// The centred body is tried first so a screen the creature already fits keeps
-	// its rendering unchanged. Only when the block lands on the body is the body
-	// moved up, and only as far as the block needs: the creature still draws at the
-	// frame's bottom, never at a row that depends on this screen's content.
+	// The body is centred in the rows between the header and the footer -- and,
+	// where the creature's block is reserved, in the rows above that block, so the
+	// pet keeps the rows the terminal gave it. A screen that reserves nothing keeps
+	// the whole frame between the rules: placeBody splits the surplus above and
+	// below the body, so a short screen reads as designed space instead of a void
+	// above the creature.
 	placed := placeBody(body, rows)
 	if reserve > 0 {
-		if _, ok := companionBlockStart(placed, summary, len(sprite)); !ok {
-			placed = placeBodyAboveCompanion(body, rows, reserve)
-		}
+		placed = placeBodyAboveCompanion(body, rows, reserve)
 	}
-	// Every screen's body starts on the first row the frame leaves, so no body
-	// floats to the middle of its frame: a body that does moves as soon as its own
-	// height changes, which is what made the interface jump while a list was
-	// walked. The rows the body does not need are left under it, where the creature
-	// and the panel summary take them.
-	placed = anchorBodyToTheRule(placed)
 	placed = m.placeCompanion(placed, summary, inner)
 
 	// The build label rides every frame's vital sign. It used to be the main menu's
@@ -801,35 +793,6 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	}
 	b.WriteString(strings.Join(footer, "\n"))
 	return b.String()
-}
-
-// anchorBodyToTheRule moves the blank rows the frame left above a short body to
-// the bottom, so the body starts on the first row. It changes no non-blank row
-// and leaves the same number -- or more -- spare under the body, which is what
-// keeps the creature's block where placeCompanion expects it.
-//
-// Every screen takes it, the welcome screen included. The welcome used to be the
-// exception -- the splash was one centred mark, and a mark floats -- but the
-// dashboard under the lockup is a body whose height changes with the machine it
-// describes: a card the host cannot fill, an environment sentence that wraps, a
-// greeting for a host that could not name its user. A body that floats to the
-// middle moves its own lockup between two machines, and it spends rows above
-// that the creature below cannot use; the mockup puts the lockup under the
-// header and the pet under the content, which is what anchoring leaves. The
-// trainer composes its own frame outside this one.
-func anchorBodyToTheRule(rows []string) []string {
-	lead := 0
-	for lead < len(rows) && rows[lead] == "" {
-		lead++
-	}
-	if lead == 0 {
-		return rows
-	}
-	out := append([]string(nil), rows[lead:]...)
-	for len(out) < len(rows) {
-		out = append(out, "")
-	}
-	return out
 }
 
 // headerName is the app or section name the frame's header carries. It is short
@@ -4062,7 +4025,11 @@ func (m Model) renderSetup() string {
 
 	hints := m.setupHints()
 	frameHints := m.panelHints(m.panelsFor(), hints)
-	budget := installerBodyRows(m.Height, m.footerRowCount(l.Inner, frameHints))
+	// The footer's RESERVATION, not the rows it draws: the Space hint appears when the
+	// cursor lands on a switch row, and an action that appears must not take its row
+	// from the body -- taking it from the body changes the body's height, which moves
+	// the centred table and the band under it.
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, frameHints))
 
 	// The shape is decided once from the frame's rows and the width, and the body
 	// is composed against it: the mockup's boxed table where it fits, the same rows

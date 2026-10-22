@@ -1,6 +1,8 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Backups                                                           dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                
+                                                                                
   Existing configurations                                                       
   The following configs will be overwritten:                                    
                                                                                 
@@ -15,8 +17,6 @@
   │   Install without Backup                                                 │  
   │   Cancel                                                                 │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
-                                                                                
-                                                                                
                                                                                 
                                                                                 
                                                                                 

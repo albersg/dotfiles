@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ---------------------------------------------------------------------------
@@ -628,5 +629,98 @@ func TestShellAuditARefusedRunSaysWhyWithoutCondemningTheSection(t *testing.T) {
 	}
 	if text := strings.Join(m.shellAuditDescription(), "\n"); !strings.Contains(text, st.RunReason) {
 		t.Errorf("the screen does not say why the last press could not measure anything:\n%s", text)
+	}
+}
+
+// TestTheClockArtReadsAsAClock pins the art the screen's own column draws. It used
+// to be a bent outline whose hand sat one column off the centre of its own face, so
+// the rows read as broken pixels rather than as a clock; the guard holds the two
+// things that made that readable: every row is the same width, and the ring is
+// symmetric about the centre column -- the hands are the only asymmetric cells.
+func TestTheClockArtReadsAsAClock(t *testing.T) {
+	rows := strings.Split(shellStartupArt, "\n")
+	if len(rows) < 5 {
+		t.Fatalf("the clock art is %d rows tall, which cannot be a clock face:\n%s", len(rows), shellStartupArt)
+	}
+
+	width := lipgloss.Width(rows[0])
+	for i, row := range rows {
+		if got := lipgloss.Width(row); got != width {
+			t.Errorf("row %d of the clock art is %d columns and row 0 is %d, so the art's edges do not line up:\n%s", i, got, width, shellStartupArt)
+		}
+	}
+	if width%2 == 0 {
+		t.Errorf("the clock art is %d columns wide, so it has no centre column for a hand to hang from", width)
+	}
+
+	// The hands are the vertical bar up from the centre and the horizontal bar to its
+	// right. Removing them leaves the ring, which has to be its own mirror image: a
+	// ring that is not symmetric is the broken-pixel defect this art was replaced for.
+	centre := width / 2
+	var ring []string
+	for _, row := range rows {
+		cells := []rune(row)
+		if len(cells) > centre && cells[centre] == '█' {
+			cells[centre] = ' '
+		}
+		if centre+1 < len(cells) && cells[centre+1] == '█' {
+			cells[centre+1] = ' '
+		}
+		if centre+2 < len(cells) && cells[centre+2] == '█' {
+			cells[centre+2] = ' '
+		}
+		ring = append(ring, string(cells))
+	}
+	for i, row := range ring {
+		mirror := []rune(row)
+		for l, r := 0, len(mirror)-1; l < r; l, r = l+1, r-1 {
+			mirror[l], mirror[r] = mirror[r], mirror[l]
+		}
+		if string(mirror) != row {
+			t.Errorf("row %d of the clock's ring is not symmetric about its centre: %q", i, row)
+		}
+	}
+}
+
+// TestTheMeasurePressIsAButtonAndNotASelectionBar pins the primary action's shape.
+// It used to be one filled block the height of its box, which is this grammar's word
+// for the row under the cursor, so the screen's call to action read as a row that was
+// already selected while the marker sat in the list. It is a bordered box in the
+// brand tone now: the box has edges, and no row of it carries the selection bar's
+// fill. The key and the press are untouched.
+func TestTheMeasurePressIsAButtonAndNotASelectionBar(t *testing.T) {
+	// The press as the band builds it: the key rides the row's own label, because the
+	// row names its own press.
+	action := actionSpec{Title: shellAuditMeasureRow, Icon: "▶"}
+	box := actionButtonOf(action, 40, true)
+
+	if len(box) != actionButtonHeight {
+		t.Fatalf("the primary box is %d rows, want the band's %d", len(box), actionButtonHeight)
+	}
+	plain := ansiEscape.ReplaceAllString(strings.Join(box, "\n"), "")
+	for _, want := range []string{"╭", "╮", "╰", "╯", "[s]", shellAuditMeasureRow} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("the primary press does not draw %q:\n%s", want, plain)
+		}
+	}
+
+	// The fill is the bar's own background, read off the style rather than written
+	// down here: a colour change must not turn this guard green while the bar is back.
+	forceTrueColor(t)
+	bar := RowBarStyle.Render("x")
+	prefix := bar[:strings.Index(bar, "x")]
+	if !strings.Contains(prefix, "48") {
+		t.Fatalf("RowBarStyle no longer paints a background, so this guard cannot tell a fill from a box: %q", bar)
+	}
+	for i, row := range actionButtonOf(action, 40, true) {
+		if strings.Contains(row, prefix) {
+			t.Errorf("row %d of the primary press is painted with the selection bar's fill: %q", i, row)
+		}
+	}
+	// The presses beside it are bordered boxes too, and equally unfilled.
+	for i, row := range actionButtonOf(actionSpec{Key: "m", Title: "Interactive", Subtitle: "start"}, 40, false) {
+		if strings.Contains(row, prefix) {
+			t.Errorf("row %d of a plan press is painted with the selection bar's fill: %q", i, row)
+		}
 	}
 }

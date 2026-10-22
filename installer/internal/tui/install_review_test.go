@@ -338,14 +338,71 @@ func TestTheScreenFollowsTheCursorAndReportsWhatItHides(t *testing.T) {
 	m.UnitCursor = last
 	rendered := m.renderInstallReview()
 
-	if !strings.Contains(rendered, rows[last].Text) {
+	if !strings.Contains(rendered, installReviewRowName(rows[last])) {
 		t.Errorf("the row the cursor is on is not drawn")
 	}
 	if !strings.Contains(rendered, "more above") {
 		t.Errorf("the screen does not say that rows are hidden above the window:\n%s", rendered)
 	}
 	first := firstSwitchablePlanRow(rows)
-	if strings.Contains(rendered, rows[first].Text) {
+	if strings.Contains(rendered, installReviewRowName(rows[first])) {
 		t.Errorf("the first switchable row is still drawn while the cursor is %d rows below it:\n%s", last, rendered)
+	}
+}
+
+// TestThePlanScreenIsDrawnAsTheReferenceCard pins the shape the redesign gave this
+// screen: the plan is the grammar's card -- the screen's own title as the chip set
+// into the card's border, the areas as the card's own dividers, the unit rows with
+// their gutter and their provenance, the row under the cursor filled across the
+// card -- and the plan panel is still the real second column beside it. Every key,
+// every toggle and the summary line are the ones the screen already had.
+func TestThePlanScreenIsDrawnAsTheReferenceCard(t *testing.T) {
+	m := planFixtures()[0].fixtureModel()
+	m.Screen = ScreenInstallReview
+	m.Width, m.Height = 80, 24
+	m.Animating = false
+	// The cursor rests on a unit: an area heading is not a row the screen lets it land
+	// on, and the selected-row check below is about a unit's row.
+	m.snapUnitCursor()
+
+	plain := ansiEscape.ReplaceAllString(m.renderInstallReview(), "")
+	if !strings.Contains(plain, "╭─ Choose What Gets Installed ─") {
+		t.Errorf("the plan is not drawn as a card with the screen's title as its chip:\n%s", plain)
+	}
+	if !strings.Contains(plain, "├─ ") {
+		t.Errorf("the plan's areas are not drawn on the card's own dividers:\n%s", plain)
+	}
+
+	// The row under the cursor is one filled bar, which is the grammar's word for the
+	// selection: the bar's background is read off the style rather than written here.
+	forceTrueColor(t)
+	bar := RowBarStyle.Render("x")
+	prefix := bar[:strings.Index(bar, "x")]
+	if !strings.Contains(prefix, "48") {
+		t.Fatalf("RowBarStyle no longer paints a background, so this guard cannot see the selected row: %q", bar)
+	}
+	filled := false
+	for _, line := range strings.Split(m.renderInstallReview(), "\n") {
+		if strings.Contains(line, prefix) && strings.Contains(ansiEscape.ReplaceAllString(line, ""), installReviewRowName(m.planReviewRows()[m.UnitCursor])) {
+			filled = true
+			break
+		}
+	}
+	if !filled {
+		t.Errorf("the unit under the cursor is not drawn as the filled bar\n%s", plain)
+	}
+
+	// The summary line and the three keys are the ones the screen always carried.
+	kept, off := m.installReviewCounts()
+	if !strings.Contains(plain, strings.Join(strings.Fields(m.installReviewCountLine(kept, off)), " ")) {
+		t.Errorf("the card does not carry the selection's summary:\n%s", plain)
+	}
+
+	// The plan panel is the second column where the frame holds two.
+	wide := m
+	wide.Width, wide.Height = 160, 50
+	widePlain := ansiEscape.ReplaceAllString(wide.renderInstallReview(), "")
+	if !strings.Contains(widePlain, mainMenuPanelLabel) {
+		t.Errorf("the widened plan draws no panel beside the card:\n%s", widePlain)
 	}
 }

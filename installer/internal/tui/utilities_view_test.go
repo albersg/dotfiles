@@ -525,3 +525,61 @@ func utilitiesCleanDoctorRun() *doctorRun {
 		Finished: finished,
 	}
 }
+
+// TestTheThemeCardSpeaksForTheThemeTheRowOpens is the guard for the card that
+// warned "Not available on this host": the desktop theme switch (GNOME's
+// gsettings, KDE's tool, macOS's defaults) is absent under WSL, but the row above
+// the card opens the installer's OWN theme picker, which works either way. The card
+// denied the action it described. It states the picker's own state now, and the
+// desktop switch is named in the section's own words rather than as a badge over
+// the whole card.
+func TestTheThemeCardSpeaksForTheThemeTheRowOpens(t *testing.T) {
+	defs, err := loadThemeDefinitions(repoRoot(t))
+	if err != nil {
+		t.Fatalf("load the theme definitions: %v", err)
+	}
+
+	noDesktop := utilitiesFrameModel(t)
+	noDesktop.DotfilesThemes = defs
+	noDesktop.Width, noDesktop.Height = 160, 50
+	noDesktop.Animating = false
+	plain := utilitiesPlain(noDesktop)
+
+	if strings.Contains(plain, "Not available on this host") {
+		t.Errorf("the theme card still denies the row above it:\n%s", plain)
+	}
+	if !anyOptionContains(noDesktop.GetCurrentOptions(), utilitiesThemeRow) {
+		t.Fatalf("the theme row is not offered, so the card cannot be measured against it: %v", noDesktop.GetCurrentOptions())
+	}
+	if !strings.Contains(plain, themeCardCountSentence(defs)) {
+		t.Errorf("the card does not state how many themes the picker offers (%q):\n%s", themeCardCountSentence(defs), plain)
+	}
+	// The desktop switch is a different fact, and the section's own sentence says so.
+	flat := strings.Join(strings.Fields(plain), " ")
+	if reason := noDesktop.utilitiesDesktopSwitchNote(); reason == "" {
+		t.Error("the section does not name the desktop switch it could not find")
+	} else if !strings.Contains(flat, strings.Join(strings.Fields(reason), " ")) {
+		t.Errorf("the card does not carry the section's own reason %q:\n%s", reason, plain)
+	}
+
+	// With a desktop detected the card states the picker's state and says nothing
+	// about a missing switch.
+	target, ok := themeSwitchByID("gnome")
+	if !ok {
+		t.Fatal("the theme switch table no longer holds the gnome entry")
+	}
+	withDesktop := noDesktop
+	withDesktop.ThemeSwitch, withDesktop.ThemeSwitchFound = target, true
+	if note := withDesktop.utilitiesDesktopSwitchNote(); note != "" {
+		t.Errorf("a detected desktop still draws the absence note %q", note)
+	}
+	if strings.Contains(utilitiesPlain(withDesktop), "No desktop theme switch") {
+		t.Errorf("a detected desktop's card says no switch is available:\n%s", utilitiesPlain(withDesktop))
+	}
+}
+
+// themeCardCountSentence is how the card writes the theme list's size, so the guard
+// compares the card against the model's own count rather than a number typed here.
+func themeCardCountSentence(defs []themeDefinition) string {
+	return themeCountLabel(len(defs)) + " are read from the repository"
+}

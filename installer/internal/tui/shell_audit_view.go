@@ -13,8 +13,8 @@ import (
 // ============================================================================
 //
 // The reference draws the shell startup as a narrow column of art, then the
-// explanation card with numbered questions, the action row (a filled [s] measure
-// beside the four plan options), a results card with stat boxes and the per-run
+// explanation card with numbered questions, the action row (the [s] measure in
+// the brand role beside the four plan options), a results card with stat boxes and the per-run
 // bars, a recent-runs table, and the methodology. The footer's middle line says
 // what the run is measuring.
 //
@@ -25,13 +25,20 @@ import (
 // samples' own relation to the slowest one; and a value the model does not hold
 // gets no box rather than a zero.
 
-const shellStartupArt = `     ▄▄▄▄▄▄▄
-   ▄█▀▀▀▀▀▀▀█▄
-  ██   ▐     ██
-  ██   ▐     ██
-  ██   ▀▀    ██
-   ▀█▄▄▄▄▄▄▄█▀
-     ▀▀▀▀▀▀▀`
+// shellStartupArt is the screen's clock. It is one ring of blocks and two hands
+// meeting on the centre -- a vertical hand up and a horizontal hand to the right.
+// The art it replaces was a bent outline whose hand sat one column off the centre
+// of its own face, so the rows read as broken pixels rather than as a clock. Every
+// row here is the same width and the ring is symmetric about the centre column;
+// shell_audit_test.go holds both.
+const shellStartupArt = `     ▄▄▄▄▄▄▄     
+   ▄█▀▀▀▀▀▀▀█▄   
+  ██         ██  
+ ██     █     ██ 
+ ██     ███   ██ 
+  ██         ██  
+   ▀█▄     ▄█▀   
+     ▀▀▀▀▀▀▀     `
 
 // shellAuditWide reports whether the reference's two-column shell screen fits.
 func (m Model) shellAuditWide(l layout, budget int) bool {
@@ -109,21 +116,24 @@ func (m Model) renderShellAuditWide(l layout, budget int) string {
 	if len(body) > budget {
 		body = body[:budget]
 	}
-	return m.frameWithPanels(m.headerName(), "", body, m.shellAuditWideHints(), nil)
+	// The bands are composed at the reading measure, which is narrower than a very
+	// wide terminal: the body takes the frame's leading margin so the composition is
+	// centred rather than hugging the left edge with the void on the right.
+	return m.frameWithPanels(m.headerName(), "", centeredBody(body, l), m.shellAuditWideHints(), nil)
 }
 
-// shellAuditActionBand is the action row across the composition: the filled
-// measure press and the four plan options. A frame too narrow for all five boxes
-// keeps the filled press on one row and the plan on the next, and a frame too
-// narrow for that states the same presses as rows.
+// shellAuditActionBand is the action row across the composition: the measure press
+// and the four plan options. A frame too narrow for all five boxes keeps the
+// measure press on one row and the plan on the next, and a frame too narrow for
+// that states the same presses as rows.
 func (m Model) shellAuditActionBand(width int, plan shellAuditPlan) []string {
 	primary := actionSpec{Icon: "▶", Title: shellAuditMeasureRow}
 	planActions := m.shellAuditPlanActions(plan)
 	if actions := actionButtonRow(primary, planActions, width); len(actions) > 0 {
 		return actions
 	}
-	if filled := actionButtonRow(primary, nil, width); len(filled) > 0 {
-		out := append([]string{}, filled...)
+	if alone := actionButtonRow(primary, nil, width); len(alone) > 0 {
+		out := append([]string{}, alone...)
 		if rest := actionButtonRowAll(planActions, width); len(rest) > 0 {
 			return append(out, rest...)
 		}

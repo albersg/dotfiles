@@ -1,6 +1,8 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Setup                                            ▓▓▓▓▓░░░░░ 1/2 · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                
+                                                                                
   ╭─ Choose Terminal Emulator ────── Select your preferred terminal emulator ╮  
   │──────────────────────────────────────────────────────────────────────────│  
   │ ▸ Alacritty                                                            › │  
@@ -15,8 +17,6 @@
   │  Learn about terminals                                                › │  
   │   Each terminal's pros and cons                                          │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
-                                                                                
-                                                                                
                                                                                 
                                                                                 
                                                                                 

@@ -11,9 +11,9 @@ import (
 //
 // The reference draws the section as a card of two-line rows with a chevron at
 // the right edge and the row under the cursor filled, beside a column of four
-// cards: the theme's availability with its amber badge, the machine's facts, the
-// live resources and the recommended next actions. The left column ends with the
-// creature.
+// cards: the theme row and the state of the picker it opens, the machine's facts,
+// the live resources and the recommended next actions. The left column ends with
+// the creature.
 //
 // The wide shape is the reference's. The 80x24 floor keeps the compact card and
 // the collapsed panel (utilities_view.go), because four stacked cards cannot hold
@@ -149,51 +149,78 @@ func (m Model) utilitiesRightColumn(width, budget int) []string {
 	return fitColumnBlocks(blocks, budget)
 }
 
-// utilitiesThemeCardBody is the theme card: what the switch does when it is
-// available, and the amber badge with the reason when it is not. The reason is
-// the section's own sentence, not a second copy typed here.
+// utilitiesThemeCardBody is the theme card: what the theme row does, and the state
+// of the action it opens -- the theme list read from the repository and the change
+// the record names that can be put back. Both facts are the model's, and the card
+// states neither an availability nor a state it does not hold.
+//
+// The card used to carry an amber "Not available on this host" badge and a
+// paragraph about GNOME, KDE and macOS, because no DESKTOP session was detected
+// under WSL. That badge described a different switch from the row it sat beside:
+// the row opens the installer's own theme picker, which works whether or not a
+// desktop is running, so the card denied the action drawn directly above it. The
+// desktop switch -- its rows, its keys and its own sentence in the section's
+// reasons -- is unchanged; it just no longer speaks for the installer's theme.
 func (m Model) utilitiesThemeCardBody(width int) []string {
 	body := []string{InkStyle.Render("Recolour the dotfiles installer and the system using your preferred theme.")}
-
-	if !m.ThemeSwitchFound {
-		body = append(body, "")
-		body = append(body, warningBadge("Not available on this host", width)...)
-		// The section's own reason is the sentence, so the card cannot say a
-		// different why from the compact screen above the list.
-		reason := ""
-		for _, candidate := range m.utilitiesReasons() {
-			if strings.Contains(candidate, "desktop theme switch") || strings.Contains(candidate, "No desktop") {
-				reason = candidate
-				break
-			}
-		}
-		if reason == "" {
-			reason = "Desktop theme switching is not available in this environment because there is no GNOME, KDE or macOS session running."
-		}
-		reason += " This installer is currently running in a headless/terminal (WSL) environment."
-		body = append(body, "")
-		for _, line := range wrapText(reason, width, 0) {
-			body = append(body, MutedStyle.Render(line))
-		}
-		return body
-	}
-
 	body = append(body, "")
-	body = append(body, SuccessStyle.Render("✓ Available on this host"))
-	if m.ThemeSwitch.Name != "" {
-		body = append(body, InkStyle.Render("The switch runs through "+m.ThemeSwitch.Name+"'s own tool."))
+	for _, line := range wrapText(m.utilitiesThemeState(), width, 0) {
+		body = append(body, MutedStyle.Render(line))
 	}
-	// The section's own reason names what the switch writes and how it is undone;
-	// it is the same source the compact card draws above the list.
-	for _, reason := range m.utilitiesReasons() {
-		if strings.Contains(reason, "desktop theme switch") {
-			for _, line := range wrapText(reason, width, 0) {
-				body = append(body, MutedStyle.Render(line))
-			}
-			break
+	// The desktop switch is a different switch from the row above, and the section
+	// still owes the reader why its rows are absent. The reason is the section's own
+	// sentence -- never a second copy typed here -- and it names the desktop, so it
+	// cannot be read as a verdict on the installer's own themes.
+	if note := m.utilitiesDesktopSwitchNote(); note != "" {
+		body = append(body, "")
+		for _, line := range wrapText(note, width, 0) {
+			body = append(body, MutedStyle.Render(line))
 		}
 	}
 	return body
+}
+
+// utilitiesDesktopSwitchNote is what the card says about the desktop switch this
+// host does not have: the section's own reason, or nothing when a desktop was
+// detected. It is a note and not a warning badge, because nothing on this screen is
+// broken: the installer's theme picker works either way.
+func (m Model) utilitiesDesktopSwitchNote() string {
+	if m.ThemeSwitchFound {
+		return ""
+	}
+	for _, reason := range m.utilitiesReasons() {
+		if strings.Contains(reason, "desktop theme switch") {
+			return reason
+		}
+	}
+	return ""
+}
+
+// utilitiesThemeState is the theme card's one sentence of state. Every case is a
+// fact the model holds: how many themes were read, which one the installer wears,
+// or -- when the list cannot be read -- the reason the section itself states, so
+// the card and the section cannot say two different things about one read.
+func (m Model) utilitiesThemeState() string {
+	themes := m.dotfilesThemeOptions()
+	switch {
+	case len(themes) > 0 && m.DotfilesThemeRecord != nil:
+		return fmt.Sprintf("%s are read from the repository, and the installer is wearing %s.",
+			themeCountLabel(len(themes)), m.DotfilesThemeRecord.Theme)
+	case len(themes) > 0:
+		return fmt.Sprintf("%s are read from the repository; the picker shows each one on the interface before it is applied.",
+			themeCountLabel(len(themes)))
+	case m.DotfilesThemeRecord != nil:
+		return fmt.Sprintf("No theme can be applied here, so this row offers the change the record names (%s) to put back.",
+			m.DotfilesThemeRecord.Theme)
+	case m.dotfilesThemesPending():
+		return "Reading the dotfiles' theme definitions from the repository checkout…"
+	default:
+		reason := m.DotfilesThemesErr
+		if reason == "" {
+			reason = themeDefinitionsNotFoundMessage()
+		}
+		return "The dotfiles' own theme definitions cannot be read here: " + reason
+	}
 }
 
 // utilitiesOverviewFactsFor is the System Overview card's body: the machine's

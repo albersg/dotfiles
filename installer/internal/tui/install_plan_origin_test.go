@@ -200,15 +200,19 @@ func TestThePlanScreenShowsThePlanByAreaInTheRunsOrder(t *testing.T) {
 		t.Errorf("the screen names the areas %v, want %v", gotAreas, wantAreas)
 	}
 
-	// And the rendered frame draws the built rows in that same order.
+	// And the rendered frame draws the built rows in that same order. The card puts a
+	// row's name on its title line and where it came from on the muted line under it,
+	// so the guard matches the row's own name here rather than the one-line
+	// concatenation the compact shape used to draw.
 	plain := ansiEscape.ReplaceAllString(m.renderInstallReview(), "")
 	at := 0
 	for _, row := range rows {
-		found := strings.Index(plain[at:], row.Text)
+		name := installReviewRowName(row)
+		found := strings.Index(plain[at:], name)
 		if found < 0 {
-			t.Fatalf("the frame does not draw the row %q:\n%s", row.Text, plain)
+			t.Fatalf("the frame does not draw the row %q:\n%s", name, plain)
 		}
-		at += found + len(row.Text)
+		at += found + len(name)
 	}
 
 	// And every row fits the narrowest terminal the frame matrix measures: the frame

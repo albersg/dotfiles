@@ -371,6 +371,11 @@ func (m Model) selectionHintReserve() []installerHint {
 		return []installerHint{hintDark, hintLight, hintUndo}
 	case ScreenThemePicker:
 		return []installerHint{hintRefresh, hintUndo}
+	case ScreenSetup:
+		// The table's Space hint appears when the cursor lands on a row that is a
+		// switch. It is reserved on every row, so walking the table cannot take a row
+		// from the list -- which is what moved the table and the band under it.
+		return []installerHint{hintToggle}
 	}
 	return nil
 }

@@ -363,33 +363,330 @@ func windowRowsFor(total, cursor, size int) (start, end int) {
 // turns a unit off can never also start the run.
 var hintStartInstall = installerHint{"[s]", "start"}
 
-// renderInstallReview draws the screen: the title, what the screen is for, the
-// run's own plan grouped by area with each row saying where it came from and each
-// tool's plugin set indented under it, and how the selection stands. The rows come
-// from planReviewRows, the same planFor the run will execute, so the list the user
-// reviews and the list the run executes cannot disagree; the window and the cursor
-// are the only things added here.
+// installReviewCardMinContent is the narrowest card content the grammar's rows are
+// drawn in: the gutter, a title worth reading and the line under it. Below it the
+// screen keeps the compact list, which is the same rows one line each -- a card cut
+// so short that it cannot show the sentence it was built to show is worse than the
+// bare rows that do not cut it.
+const installReviewCardMinContent = 32
+
+// installReviewNoteRows is the rows the window's two notes hold: how many rows above
+// the window and how many below it the screen hid. They are held whether or not the
+// window draws them, so reaching the first or the last unit cannot change the card's
+// height and move the frame around it.
+const installReviewNoteRows = 2
+
+// installReviewCardChrome is what a card spends before its body: the top border, the
+// rule under the chip and the bottom border.
+const installReviewCardChrome = 3
+
+// installReviewWayBackRows is what the way-back block is given under the card: its
+// chip and one wrapped line. The block is the screen's own promise -- what undoes
+// this run -- so the card leaves it the rows it needs, and the block itself still
+// says how many lines it could not show.
+const installReviewWayBackRows = 2
+
+// The area glyphs: a unit's row wears the mark of the area it belongs to, so the
+// gutter says which part of the run the row is in and the words say which unit it
+// is. The areas come from planFor, so the table is keyed by a fact the plan already
+// carries rather than by eighteen meanings invented here.
+const (
+	installReviewPreparationIcon = "\uf0ad" // nf-fa-wrench
+	installReviewDependencyIcon  = "\uf0c1" // nf-fa-link: what a unit needs first
+	installReviewToolIcon        = "\uf0f3" // nf-fa-bell: a tool the run installs
+	installReviewShellIcon       = dashboardShellIcon
+	installReviewExtraIcon       = "\uf055" // nf-fa-plus-circle: an extra you turned on
+	installReviewFinishIcon      = "\uf00c" // nf-fa-check: the last steps of the run
+)
+
+// installReviewAreaIcon names the area a row belongs to. An area this table does not
+// name gets the tool mark rather than an empty gutter, so a new area cannot leave its
+// rows indented a column differently from every other row in the card.
+func installReviewAreaIcon(area string) string {
+	switch area {
+	case "Preparation":
+		return installReviewPreparationIcon
+	case "Dependencies":
+		return installReviewDependencyIcon
+	case "Shell":
+		return installReviewShellIcon
+	case "Extras":
+		return installReviewExtraIcon
+	case "Finishing up":
+		return installReviewFinishIcon
+	}
+	return installReviewToolIcon
+}
+
+// installReviewRowLines draws one of the plan's rows in the grammar's shape. A step
+// is the row the cursor can rest on: its own switch mark ("[x]" kept on, "[ ]"
+// turned off) and its name on the title line, and where it came from -- or the one
+// claim that it is a unit the run needs -- on the muted line under it. A plugin set
+// keeps its own words and wears the set's gear, because that is what it is.
 //
-// The window is sized from the terminal rather than from a number chosen here, and
-// the rows that do not fit are reported rather than dropped: a list that silently
-// hides rows is a list the user reviews by pressing Enter. Both of those were
-// measured, not designed -- the frame guard reported this screen drawing 28 rows on a
-// 24-row terminal, and nine rows fit at 80x24 and overflow the twenty-row terminal
-// the matrix also measures.
+// Nothing is added and nothing is renamed: the two lines are the row's own text,
+// split at the dash the row already carries, and a row with no dash keeps one line.
+// The rows carry no chevron: a unit is switched where it stands, and this grammar
+// spends the chevron on the rows that open something.
+func installReviewRowLines(row planReviewRow, area string, width int, selected bool) []string {
+	if row.Kind == planRowSet {
+		return cardRowLines(cardRow{
+			Icon:  setupPluginSetIcon,
+			Title: strings.TrimSpace(row.Text),
+		}, width, selected)
+	}
+
+	marker, rest := installReviewRowSplitMarker(row.Text)
+	title, subtitle := installReviewRowSplitOrigin(rest)
+	return cardRowLines(cardRow{
+		Icon:     installReviewAreaIcon(area),
+		Title:    strings.TrimSpace(marker + " " + title),
+		Subtitle: subtitle,
+	}, width, selected)
+}
+
+// installReviewRowSplitMarker splits a row into its switch mark and the words under
+// it, so the mark stays at the head of the title where a reader looks for it.
+func installReviewRowSplitMarker(text string) (marker, rest string) {
+	for _, mark := range []string{"[x] ", "[ ] "} {
+		if strings.HasPrefix(text, mark) {
+			return strings.TrimSpace(mark), strings.TrimPrefix(text, mark)
+		}
+	}
+	return "", text
+}
+
+// installReviewRowSplitOrigin splits a row's words at the dash that separates the
+// unit from where it came from: the unit is the title and the provenance is the
+// muted line under it.
+func installReviewRowSplitOrigin(text string) (title, subtitle string) {
+	if at := strings.Index(text, " — "); at > 0 {
+		return text[:at], text[at+len(" — "):]
+	}
+	return text, ""
+}
+
+// installReviewRowName is the part of a row the card draws as its title: the unit's
+// name, the area's name, or the plugin set's own words. It is what a reader scans the
+// screen for, and what a guard compares when it asks whether a row is on the screen --
+// the row's full text is split into two lines by the grammar, so the concatenation is
+// no longer what a frame holds.
+func installReviewRowName(row planReviewRow) string {
+	switch row.Kind {
+	case planRowHeading:
+		return row.Text
+	case planRowSet:
+		return strings.TrimSpace(row.Text)
+	}
+	_, rest := installReviewRowSplitMarker(row.Text)
+	title, _ := installReviewRowSplitOrigin(rest)
+	return title
+}
+
+// installReviewRowHeight is how many lines installReviewRowLines draws for a row, so
+// the window is measured before anything is drawn. A heading costs one row: the
+// divider that names its area.
+func installReviewRowHeight(row planReviewRow) int {
+	switch row.Kind {
+	case planRowHeading, planRowSet:
+		return 1
+	}
+	_, rest := installReviewRowSplitMarker(row.Text)
+	if _, subtitle := installReviewRowSplitOrigin(rest); subtitle != "" {
+		return 2
+	}
+	return 1
+}
+
+// installReviewGroups turns the window of plan rows into the card's groups: an area
+// heading opens a group named after it -- the card's own divider -- and the rows
+// under it follow, with the plugin set still directly under its unit. The window can
+// start inside an area: the first group then carries no name, because the name was
+// the row above the window and the window's own note already says it hid rows.
+func (m Model) installReviewGroups(rows []planReviewRow, start, end, content int) []cardGroup {
+	area := ""
+	for i := 0; i < start && i < len(rows); i++ {
+		if rows[i].Kind == planRowHeading {
+			area = rows[i].Text
+		}
+	}
+
+	var groups []cardGroup
+	for i := start; i < end && i < len(rows); i++ {
+		row := rows[i]
+		if row.Kind == planRowHeading {
+			area = row.Text
+			groups = append(groups, cardGroup{Title: area})
+			continue
+		}
+		if len(groups) == 0 {
+			groups = append(groups, cardGroup{})
+		}
+		at := len(groups) - 1
+		groups[at].Lines = append(groups[at].Lines, installReviewRowLines(row, area, content, i == m.UnitCursor)...)
+	}
+	// A window can end between an area's name and the units under it, which would
+	// draw a divider with nothing beneath it and read as an area of no work. The name
+	// is dropped with the rows it no longer introduces, and the note under the card
+	// says what the window hid.
+	for len(groups) > 0 && len(groups[len(groups)-1].Lines) == 0 {
+		groups = groups[:len(groups)-1]
+	}
+	// The card draws a group's name on the rule above it and draws nothing above the
+	// first group, so a window that opens on an area would lose that area's name. An
+	// empty group in front gives the name its rule, and it costs no row: a group with
+	// no lines is its divider alone.
+	if len(groups) > 0 && groups[0].Title != "" {
+		groups = append([]cardGroup{{}}, groups...)
+	}
+	return groups
+}
+
+// installReviewCardBody draws the screen in the reference grammar: the screen's own
+// title as the chip on the card's border, its own description as the caption beside
+// it, one group per area with the area's name on the card's divider, the unit rows
+// with their icons and their provenance, the row under the cursor filled across the
+// card, and the selection's summary under a blank row. The way-back block keeps its
+// rows under the card.
+//
+// It reports false when the frame cannot hold the card, and the screen then draws
+// the compact body instead. The gate reads the width and the row budget only -- not
+// the cursor and not the notice -- so the shape cannot change while the units are
+// walked.
+func (m Model) installReviewCardBody(width, budget int) ([]string, bool) {
+	content := cardContentWidth(width)
+	if content < installReviewCardMinContent {
+		return nil, false
+	}
+
+	cardBudget := budget - installReviewWayBackRows
+	if cardBudget < installReviewCardChrome+6 {
+		return nil, false
+	}
+
+	rows := m.planReviewRows()
+	heights := make([]int, len(rows))
+	for i, row := range rows {
+		heights[i] = installReviewRowHeight(row)
+	}
+
+	// The caption rides the card's border when the border has room for it, and moves
+	// inside the card when it does not (questionCard, components.go). The rows it takes
+	// there are the card's own, so they are measured here exactly as they are drawn.
+	title, caption := stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription()
+	head := 0
+	if caption != "" && !cardBorderCarriesCaption(title, caption, width) {
+		head = len(wrapText(caption, content, 0))
+	}
+
+	kept, off := m.installReviewCounts()
+	summary := wrapText(m.installReviewCountLine(kept, off), content, 0)
+	room := max(1, cardBudget-installReviewCardChrome-head)
+	// The rows the card spends around the list: the blank above the count and the
+	// count itself. The window's own notes are counted by the window arithmetic.
+	fixed := len(summary) + 1
+	entryRoom := room - fixed
+	if entryRoom < 1 {
+		return nil, false
+	}
+
+	start, end := sectionEntryWindow(heights, m.UnitCursor, entryRoom)
+	windowed := start > 0 || end < len(rows)
+	// Both notes are drawn when the list is windowed -- blank where the window has
+	// nothing to report -- so the card keeps one height at every cursor position
+	// instead of growing a row at each end of the list. The window gives back the row
+	// a note it does not need would have added.
+	for start < end && end-1 > m.UnitCursor && sum(heights[start:end])+fixed+installReviewNoteRows > room {
+		end--
+	}
+
+	groups := m.installReviewGroups(rows, start, end, content)
+	if len(groups) == 0 {
+		return nil, false
+	}
+
+	var tail []string
+	if windowed {
+		above, below := "", ""
+		if start > 0 {
+			above = MutedStyle.Render(fmt.Sprintf("↑ %d more above", start))
+		}
+		if end < len(rows) {
+			below = MutedStyle.Render(fmt.Sprintf("↓ %d more below", len(rows)-end))
+		}
+		tail = append(tail, above, below)
+	}
+	tail = append(tail, "")
+	tail = append(tail, summary...)
+	last := len(groups) - 1
+	groups[last].Lines = append(groups[last].Lines, tail...)
+
+	card := questionCard(title, caption, width, groups)
+	// The way back keeps its reserved rows while the list is windowed -- the list is
+	// what this screen is for, and the same sentence is on the failure screen -- and
+	// spends the rows a list that fits did not need.
+	wayBackRoom := budget - len(card)
+	if windowed && wayBackRoom > installReviewWayBackRows {
+		wayBackRoom = installReviewWayBackRows
+	}
+	card = append(card, wayBackRows(wayBackBeforeTheRun(m.Choices.CreateBackup), width, wayBackRoom)...)
+	if len(card) > budget {
+		return nil, false
+	}
+	return card, true
+}
+
+// renderInstallReview draws the screen: the run's own plan grouped by area, each row
+// saying what will happen to it and where it came from, and how the selection
+// stands. The rows come from planReviewRows, the same planFor the run will execute,
+// so the list the user reviews and the list the run executes cannot disagree; the
+// window and the cursor are the only things the renderer adds.
+//
+// The card is the reference's shape (installReviewCardBody); the compact body below
+// is the frame that cannot hold it, where the same rows are drawn one line each. The
+// window is sized from the terminal rather than from a number chosen here, and the
+// rows that do not fit are reported rather than dropped: a list that silently hides
+// rows is a list the user reviews by pressing Enter.
 func (m Model) renderInstallReview() string {
 	// The plan panel is composed beside the body on a wide frame, and the body is
 	// then cut to the left column. Wrapping the description to the whole frame and
 	// letting that cut finish the sentence is what put the "…" in the middle of
 	// "Every unit this run can install": wrap to the column the text is drawn in.
 	l := layoutFor(m)
-	width := l.Inner
-	if l.TwoColumn && len(m.panelsFor()) > 0 {
-		width = l.Left
+	panels := m.panelsFor()
+	hints := []installerHint{hintUp, hintDown, hintToggle, hintStartInstall, hintBack}
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, m.panelHints(panels, hints)))
+
+	// The card, drawn at the column it will be read in.
+	cardWidth := l.Composition
+	besidePanel := l.TwoColumn && len(panels) > 0
+	if besidePanel {
+		cardWidth = l.Left
+	}
+	body, ok := m.installReviewCardBody(cardWidth, budget)
+	if !ok {
+		body = m.installReviewCompactBody(cardWidth, budget)
+	}
+	if !besidePanel {
+		body = centeredBody(body, l)
 	}
 
-	hints := []installerHint{hintUp, hintDown, hintToggle, hintStartInstall, hintBack}
-	budget := installerBodyRows(m.Height, m.footerRowCount(l.Inner, m.panelHints(m.panelsFor(), hints)))
+	// The plan is the second of the wizard's two mandatory screens, so it carries the
+	// meter's last step. Without it the header's vital sign disappears exactly where
+	// the flow ends: the screen a user reads last would be the one screen that says
+	// nothing about how far along they are.
+	vital := ""
+	if current, total := m.wizardProgress(); total > 0 {
+		vital = meterRendered(current, total, 10)
+	}
+	return m.frame(m.headerName(), vital, body, hints)
+}
 
+// installReviewCompactBody is the frame too narrow for the card: the title, what the
+// screen is for, the plan one line per row, the count and the way back. It is the
+// shape this screen drew before the grammar reached it, kept because the rows are
+// the screen and a card that cannot hold them is worse than the bare rows that can.
+func (m Model) installReviewCompactBody(width, budget int) []string {
 	description := wrapText(m.GetScreenDescription(), width, 0)
 	kept, off := m.installReviewCounts()
 	count := wrapText(m.installReviewCountLine(kept, off), width, 0)
@@ -410,16 +707,16 @@ func (m Model) renderInstallReview() string {
 		body = append(body, MutedStyle.Render("↑ "+strconv.Itoa(start)+" more above"))
 	}
 	for i := start; i < end; i++ {
-		// A row is one line, so an overlong one is cut with the visible marker
-		// rather than allowed to widen the frame: the frame's contract is that
-		// overlong text gives way in the open, not that it is clipped at the edge.
+		// A row is one line, so an overlong one is cut with the visible marker rather
+		// than allowed to widen the frame: the frame's contract is that overlong text
+		// gives way in the open, not that it is clipped at the edge.
 		text := truncate(rows[i].Text, width)
 		switch {
 		case i == m.UnitCursor:
 			body = append(body, BrandStyle.Render(text))
 		case rows[i].Kind == planRowHeading:
-			// The area name is a heading, not a row the user acts on: it is muted so
-			// it does not read as a switch, and it is never the cursor's target.
+			// The area name is a heading, not a row the user acts on: it is muted so it
+			// does not read as a switch, and it is never the cursor's target.
 			body = append(body, SubtitleStyle.Render(text))
 		default:
 			body = append(body, text)
@@ -432,24 +729,13 @@ func (m Model) renderInstallReview() string {
 	body = append(body, "")
 	body = append(body, count...)
 
-	// The plan is the second of the wizard's two mandatory screens, so it carries the
-	// meter's last step. Without it the header's vital sign disappears exactly where
-	// the flow ends: the screen a user reads last would be the one screen that says
-	// nothing about how far along they are.
-	vital := ""
-	if current, total := m.wizardProgress(); total > 0 {
-		vital = meterRendered(current, total, 10)
-	}
-
-	// The way back is named here, on the screen where a person can still decide not
-	// to start, and it is placed in the rows the list did not need -- the rule this
-	// frame already follows for the panel summary and the creature. A short terminal
-	// keeps the units and the count and loses the sentence, which is the right way
-	// round: the list is what this screen is for, and the same sentence is on the
-	// failure screen and in the panel that offers the run.
+	// The way back is named here, on the screen where a person can still decide not to
+	// start, and it is placed in the rows the list did not need. A short terminal keeps
+	// the units and the count and loses the sentence, which is the right way round: the
+	// list is what this screen is for, and the same sentence is on the failure screen
+	// and in the panel that offers the run.
 	body = append(body, wayBackRows(wayBackBeforeTheRun(m.Choices.CreateBackup), width, budget-len(body))...)
-
-	return m.frame(m.headerName(), vital, body, hints)
+	return body
 }
 
 // openInstallReview puts the review screen in front of the run, with the screen it

@@ -3196,14 +3196,15 @@ func TestPlaceBodyCentresShortBodies(t *testing.T) {
 	}
 }
 
-// TestPlaceBodyCapsTheTopMargin pins the other half of the placement: the shift
-// down is capped at placeBodyTopMarginMax rows, so a tall terminal leaves the
-// body just under the rule instead of floating it halfway down the screen. The
-// 80x24 floor is below the cap and does not move; the two sizes this feature was
-// designed on are above it and are held at the cap. The heights are asserted as
+// TestPlaceBodyCentresInTheRowsBetweenHeaderAndFooter pins the placement at the
+// three sizes the interface is reviewed at. The body used to be anchored to the
+// rule: every screen put its first row on the frame's first row, which glued the
+// content to the header and left one large void above the creature. The body is
+// centred in the rows between the header and the footer now, at every size, and
+// the 80x24 floor keeps the shape it always had. The heights are asserted as
 // terminal rows with View()'s own chrome counted, because that is the row a
-// reader sees, and the three heights are the floor and the two wide sizes.
-func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
+// reader sees.
+func TestPlaceBodyCentresInTheRowsBetweenHeaderAndFooter(t *testing.T) {
 	hints := []installerHint{hintUp, hintDown, hintSelect, hintQuit}
 	body := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
 
@@ -3212,9 +3213,14 @@ func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
 		width, height       int
 		wantFirst, wantLast int
 	}{
-		{"80x24, the floor: a 5-row shift, under the cap", 80, 24, 9, 17},
-		{"160x50: the shift is the cap, not the 18 the surplus half would ask for", 160, 50, 10, 18},
-		{"227x62: the cap holds at the widest terminal", 227, 62, 10, 18},
+		// 80x24 leaves 19 body rows, so a nine-row body starts five rows down: the
+		// shift the floor always had, and the same one the morning's anchoring kept.
+		{"80x24, the floor", 80, 24, 9, 17},
+		// 160x50 leaves 45 rows, so the body is centred 18 rows down.
+		{"160x50", 160, 50, 22, 30},
+		// 227x62 leaves 57 rows; the body is centred 24 rows down rather than held
+		// under the rule, which is the void the anchoring pass left above the pet.
+		{"227x62, the widest terminal", 227, 62, 28, 36},
 	} {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
@@ -3243,7 +3249,82 @@ func TestPlaceBodyCapsTheTopMargin(t *testing.T) {
 			if got := last + chrome + 1; got != c.wantLast {
 				t.Errorf("the body ends on terminal row %d, want %d", got, c.wantLast)
 			}
+			// Centred means the rows above and below the body differ by at most one,
+			// the odd one going below: an anchored body left every spare row under it.
+			above := first
+			below := rows - 1 - last
+			if below != above && below != above+1 {
+				t.Errorf("the body sits %d rows into %d with %d under it, so it is not centred", above, rows, below)
+			}
 		})
+	}
+}
+
+// TestTheCentreDoesNotMoveWhileTheCursorWalks pins the other half of centring: a
+// body whose height changes as the cursor moves moves itself, which is the jump
+// the anchoring pass was written to stop. Every screen that centres draws a
+// fixed-height block -- a windowed list, a panel card measured at the tallest its
+// facts get, a card built from the state's groups -- so the row the body starts on
+// is the same on the first row as on the last. The guard reads the frame's own
+// lines: the first row after the header's rule that is not blank.
+func TestTheCentreDoesNotMoveWhileTheCursorWalks(t *testing.T) {
+	bodyStart := func(t *testing.T, name string, view string) int {
+		t.Helper()
+		rows := strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n")
+		// View()'s padding row, the header and the rule under it.
+		const chrome = 1 + 2
+		for i := chrome; i < len(rows); i++ {
+			if strings.TrimSpace(rows[i]) != "" {
+				return i
+			}
+		}
+		t.Fatalf("%s draws no body at all", name)
+		return 0
+	}
+
+	cases := []struct {
+		name  string
+		build func(*testing.T) Model
+	}{
+		{"welcome", func(t *testing.T) Model { return installerFrameCase(t, "welcome") }},
+		{"main-menu", func(t *testing.T) Model { return installerFrameCase(t, "main-menu") }},
+		{"os-select", func(t *testing.T) Model { return installerFrameCase(t, "os-select") }},
+		{"shell-select", func(t *testing.T) Model { return installerFrameCase(t, "shell-select") }},
+		{"font-select", func(t *testing.T) Model { return installerFrameCase(t, "font-select") }},
+		{"install-review", func(t *testing.T) Model { return installerFrameCase(t, "install-review") }},
+		{"setup", setupTableFrame},
+		{"learn-tools", func(t *testing.T) Model { return installerFrameCase(t, "learn-tools") }},
+		{"learn-terminals", func(t *testing.T) Model { return installerFrameCase(t, "learn-terminals") }},
+		{"utilities", utilitiesFrameCase},
+		{"update-center", func(t *testing.T) Model { return updateCenterLongList(t, 40) }},
+		{"shell-startup", shellAuditFrameCase},
+		{"doctor", doctorFrameCase},
+		{"disk-cleaner", diskCleanerFrameCase},
+	}
+
+	for _, size := range measuredTerminalSizes {
+		for _, c := range cases {
+			c := c
+			t.Run(c.name+"/"+size.name, func(t *testing.T) {
+				m := c.build(t)
+				m.Width, m.Height = size.width, size.height
+				m.Animating = false
+
+				options := m.GetCurrentOptions()
+				if len(options) < 2 {
+					t.Skip("the screen offers no list to walk")
+				}
+				m.Cursor = 0
+				first := bodyStart(t, c.name, m.View())
+				for cursor := 1; cursor < len(options); cursor++ {
+					m.Cursor = cursor
+					if got := bodyStart(t, c.name, m.View()); got != first {
+						t.Fatalf("at %s cursor %d starts the body on row %d and cursor 0 starts it on row %d: the frame moves while the cursor walks it",
+							size.name, cursor, got, first)
+					}
+				}
+			})
+		}
 	}
 }
 

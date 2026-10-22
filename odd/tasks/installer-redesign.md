@@ -1077,3 +1077,92 @@ macOS host), `TestFontSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
 `TestFontSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
 `TestFontSelectGolden` and `TestFontSelectWideGolden` are new. The OS, terminal and
 shell guards and their goldens pass unchanged.
+
+L24. Five defects the user reported against the redesign, all in the tree
+(uncommitted). Each one names what was wrong, what changed and the guard that
+holds it.
+
+- **The body is centred again, and the anchor is stable.** `bodyAnchorsToTheRule`
+  (whose real name was `anchorBodyToTheRule`) moved every screen's spare rows from
+  above the body to below it, so each screen started on the frame's first row and
+  the space collected in one void above the creature (`view.go`). `placeBody` no
+  longer caps its margin at six rows either: the cap was added for a body that
+  *floated*, and the anchor replaced it with a body that hugged the rule. The body
+  is now centred in the rows between the header and the footer, and on a screen
+  whose creature block is reserved (`panelsOfferPlan`) it is centred in the rows
+  above that block (`placeBodyAboveCompanion`), so the pet keeps the rows the
+  terminal gave it and the 80x24 floor keeps its five-row shift.
+- **Two things had to be true for centring to be safe, and both are fixed.**
+  A body that changes height as the cursor walks it moves itself, so: the section
+  screens' prose card now holds the rows of its column instead of ending at its
+  text (`sectionWideDetailCard`) -- the disk cleaner's prose follows the cursor and
+  moved the frame by three rows -- and the setup screen reserves the Space hint its
+  footer gains when the cursor lands on a switch row (`selectionHintReserve`,
+  `renderSetup`), because taking that row from the body changed the shape the table
+  was drawn in.
+- **The utilities theme card no longer denies its own row.** The card carried an
+  amber "Not available on this host" badge and a paragraph about GNOME/KDE/macOS
+  because no DESKTOP session was detected under WSL, while the row above it opens
+  the installer's own theme picker, which works either way. The badge is gone; the
+  card states the picker's own state (`utilitiesThemeState`: how many themes were
+  read and which one is worn, or the reason the list cannot be read) and names the
+  desktop switch in the section's own sentence (`utilitiesDesktopSwitchNote`), so
+  the absence is still declared and nothing claims an availability the model does
+  not hold. `warningBadge` stays in the grammar with no caller and a comment saying
+  why.
+- **The update center's list scrolls inside its card.** The table's body was
+  measured without the two notes it grows at the ends of its window, so a windowed
+  list drew the frame two rows past the terminal's height: the terminal scrolled,
+  the header left the screen and rows disappeared. The card is now given the rows
+  the stats strip left (`updateCenterTableColumn`) and holds both note rows whether
+  or not the window draws them (`updateCenterTable`), so the header, the stats, the
+  table's heading and the footer never move and only the window does. The detail
+  card is clipped to the same budget rather than growing the body, and the note is
+  still the truth about what the window hid.
+- **The shell startup's clock and its primary press.** The clock art mixed `▐` and
+  `▀▀` into a ring of `█` with its hand one column off the centre, so it read as
+  broken pixels; it is one symmetric ring with a hand up and a hand right, every row
+  the same width. The `[s]` measure press was one filled block the height of its
+  box, which is this grammar's word for *the row under the cursor*, so the call to
+  action read as a selection bar while the marker sat in the list; it is now the
+  bordered box its neighbours wear, painted in the brand role (`actionButtonOf`).
+  The key, the press and the plan options are untouched. The wide body also takes
+  the frame's leading margin now, so a terminal wider than the reading measure does
+  not leave the whole screen hugging the left edge.
+- **The install review draws the shared grammar.** The screen was the last one
+  still on the bare bands: a title, a description and one-line bars. It is a card
+  now (`installReviewCardBody`): the screen's own title as the chip, its own
+  description as the caption (kept inside the card when the border row has no room,
+  which is what `questionCard` already does), one group per area with the area on
+  the card's divider, one row per unit with the area's glyph in the gutter, its
+  `[x]`/`[ ]` mark at the head of the title and its provenance on the muted line
+  under it, the cursor's row filled across the card, the count summary under a
+  blank row and the way-back block under the card in the rows it reserves. The rows
+  carry no chevron on purpose: a unit is switched where it stands and this grammar
+  spends the chevron on the rows that open something. The panel beside it is the
+  same plan panel it always was. The toggles, the summary, the keys and the compact
+  fallback are unchanged; the list still reports what its window hid.
+
+Guards. `TestPlaceBodyCentresInTheRowsBetweenHeaderAndFooter` (the three reviewed
+sizes, replacing the cap guard), `TestTheCentreDoesNotMoveWhileTheCursorWalks`
+(fourteen screens across the measured terminals: the body starts on the same row at
+every cursor position), `TestUpdateCenterScrollsInsideItsCard` and
+`TestUpdateCenterWindowNoteIsTruthful`, `TestTheThemeCardSpeaksForTheThemeTheRowOpens`,
+`TestTheClockArtReadsAsAClock`, `TestTheMeasurePressIsAButtonAndNotASelectionBar`
+and `TestThePlanScreenIsDrawnAsTheReferenceCard`. Two guards read a row's *name*
+instead of its one-line text, because the card splits the row into a title and the
+line under it: `TestThePlanScreenShowsThePlanByAreaInTheRunsOrder` and
+`TestTheScreenFollowsTheCursorAndReportsWhatItHides`. Goldens: every golden of the
+screens the centring moved was regenerated (33 files), including the four reference
+screens' wide frames.
+
+Two things found and not taken. `TestSinglePanelColumnIsThePanelsOwnRows` and
+`TestTabRowNamesThePanelsAndMarksTheActiveOne` are red on this branch and were red
+before this slice: both compare `panelCaption`'s output against per-name escape
+sequences, and `card()` renders the caption (names joined by ` · `) as one styled
+string. An action row under the update center's list still scrolls the window back
+to the first entry, because the table scrolls to the entry under the cursor and an
+action row has none; keeping the last window needs a field the model does not have.
+At the 80x24 floor the review's card shows three or four of a sixteen-unit plan
+with "↓ N more below", which is the grammar's two-line row cost; the compact
+one-line fallback is kept for frames too narrow for the card.

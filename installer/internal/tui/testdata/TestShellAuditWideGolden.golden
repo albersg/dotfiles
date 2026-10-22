@@ -1,20 +1,21 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
    Utilities                                                                                                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-            ▄▄▄▄▄▄▄       ╭─ The shell's startup ────────────────────────────────────────────────────────────────────── Measure how long zsh takes to start. ╮  
-         ▄█▀▀▀▀▀▀▀█▄      │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
-       ██   ▐     ██      │  1  What is measured?                                                                                                            │  
-       ██   ▐     ██      │    The time it takes for zsh to start, including your configuration: `zsh -i -c exit`.                                           │  
-       ██   ▀▀    ██      │  2  How many runs?                                                                                                               │  
-         ▀█▄▄▄▄▄▄▄█▀      │    5 starts are performed (each bounded by 10 s). The median is used as the result.                                              │  
-            ▀▀▀▀▀▀▀       │  3  Controls?                                                                                                                    │  
-                          │    Press [s] to start, or adjust the options below. Use [h] to keep the run history.                                             │  
-           zsh            ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+         ▄▄▄▄▄▄▄          ╭─ The shell's startup ────────────────────────────────────────────────────────────────────── Measure how long zsh takes to start. ╮  
+       ▄█▀▀▀▀▀▀▀█▄        │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
+      ██         ██       │  1  What is measured?                                                                                                            │  
+     ██     █     ██      │    The time it takes for zsh to start, including your configuration: `zsh -i -c exit`.                                           │  
+     ██     ███   ██      │  2  How many runs?                                                                                                               │  
+      ██         ██       │    5 starts are performed (each bounded by 10 s). The median is used as the result.                                              │  
+       ▀█▄     ▄█▀        │  3  Controls?                                                                                                                    │  
+         ▀▀▀▀▀▀▀          │    Press [s] to start, or adjust the options below. Use [h] to keep the run history.                                             │  
+                          ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+           zsh                                                                                                                                                  
                                                                                                                                                                 
-   ▶ [s] Measure the shell's startup     ╭─────────────────────╮  ╭────────────────────────────╮  ╭──────────────────────────╮  ╭──────────────────────────╮    
-                                         │  [m] Interactive   │  │ # [n] Runs: 5              │  │  [w] Warm-up: Off       │  │  [b] Clean comparison   │    
-                                         │ interactive         │  │ Number of measurements     │  │ Discard initial runs     │  │ Off                      │    
-                                         ╰─────────────────────╯  ╰────────────────────────────╯  ╰──────────────────────────╯  ╰──────────────────────────╯    
+  ╭─────────────────────────────────────╮  ╭─────────────────────╮  ╭────────────────────────────╮  ╭──────────────────────────╮  ╭──────────────────────────╮  
+  │ ▶ [s] Measure the shell's startup   │  │  [m] Interactive   │  │ # [n] Runs: 5              │  │  [w] Warm-up: Off       │  │  [b] Clean comparison   │  
+  │                                     │  │ interactive         │  │ Number of measurements     │  │ Discard initial runs     │  │ Off                      │  
+  ╰─────────────────────────────────────╯  ╰─────────────────────╯  ╰────────────────────────────╯  ╰──────────────────────────╯  ╰──────────────────────────╯  
                                                                                                                                                                 
   ← Back  [Esc] returns to Utilities                                                                                                                            
   ╭─ Results ──────────────────────────────────────────────────── startup performance ╮  ╭─ Recent runs ─────────────────────────── Most recent measurements ╮  
@@ -45,6 +46,5 @@
   │ • Nothing here is changed: no startup file is written and no plugin is disabled.                                                                         │  
   │ • ← Back returns to Utilities; the footer spells the key.                                                                                                │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
-                                                                                                                                                                
   ● Ready ───────────────────────────────────────────────── Median 924 ms over 4 of 5 runs · fastest 872 ms ──────────────────────────────────────────────────  
                                                     ↑/k up • ↓/j down • [s] measure • [m/n/w/b] what to measure • [h/r] history / recommendations • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

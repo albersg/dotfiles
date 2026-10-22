@@ -436,8 +436,8 @@ func statBoxOf(box statBox, width int) []string {
 }
 
 // actionSpec is one press the screen offers: the key it carries, the words it
-// draws, the muted line under them and a glyph. The primary action is filled;
-// the others are bordered.
+// draws, the muted line under them and a glyph. The primary action wears the brand
+// role; the others wear the chrome's border.
 type actionSpec struct {
 	Key      string
 	Title    string
@@ -450,10 +450,10 @@ const (
 	actionButtonGap    = 2
 )
 
-// actionButtonRow draws the screen's actions in one row of equal boxes: the
-// primary action filled in the brand role, the others bordered. It returns nil
-// when the boxes cannot hold their titles, so the caller can fall back to rows
-// and lose no press.
+// actionButtonRow draws the screen's actions in one row of boxes: the primary
+// press in the brand role, the others in the chrome's border. It returns nil when
+// the boxes cannot hold their titles, so the caller can fall back to rows and lose
+// no press.
 // actionButtonNeed is the narrowest a box can be: its key, title, subtitle and the
 // border and padding. The key is counted because it is drawn in the same line as
 // the title and a box measured without it cuts the last word off.
@@ -503,8 +503,16 @@ func actionButtonRow(primary actionSpec, others []actionSpec, width int) []strin
 	return rows
 }
 
-// actionButtonOf draws one action box: filled for the primary, bordered for the
-// rest, with the key and the title on one row and the subtitle under it.
+// actionButtonOf draws one action box: the press that acts where it stands wears
+// the brand role, and every other press wears the chrome's own border.
+//
+// The primary is a BUTTON, not a selection bar. It used to be one filled block the
+// height of the box, which is this grammar's word for the row under the cursor --
+// cardRowLines fills a selected row with the same bar -- so the screen's call to
+// action read as a row that was already selected while the marker sat elsewhere in
+// the list. It is the bordered box the presses beside it wear now, painted in the
+// brand tone: the border, the mark and the words carry the weight, and no fill
+// claims a state the screen is not in.
 func actionButtonOf(action actionSpec, width int, primary bool) []string {
 	inner := max(1, width-panelFrame)
 	content := max(1, inner-2*grammarCardPad)
@@ -515,26 +523,19 @@ func actionButtonOf(action actionSpec, width int, primary bool) []string {
 	head := strings.TrimSpace(action.Icon + " " + keyPrefix + action.Title)
 	subtitle := truncate(action.Subtitle, content)
 
-	if primary {
-		fill := func(s string) string {
-			return RowBarStyle.Render(padRight(s, inner))
-		}
-		return []string{
-			fill(" " + padRight(head, inner-2) + " "),
-			fill(" " + padRight("", inner-2) + " "),
-			fill(" " + padRight(subtitle, inner-2) + " "),
-			fill(strings.Repeat(" ", inner)),
-		}
-	}
-
 	edge := func(s string) string { return PanelBorderStyle.Render(s) }
+	headStyle := AccentKeyStyle
+	if primary {
+		edge = func(s string) string { return BrandStyle.Render(s) }
+		headStyle = BrandStyle.Bold(true)
+	}
 	row := func(s string) string {
 		return edge("│") + strings.Repeat(" ", grammarCardPad) +
 			padRight(truncate(s, content), content) + strings.Repeat(" ", grammarCardPad) + edge("│")
 	}
 	return []string{
 		edge("╭" + strings.Repeat("─", inner) + "╮"),
-		row(AccentKeyStyle.Render(head)),
+		row(headStyle.Render(head)),
 		row(MutedStyle.Render(subtitle)),
 		edge("╰" + strings.Repeat("─", inner) + "╯"),
 	}
@@ -607,9 +608,15 @@ func resourceBarRow(label string, fraction float64, value string, width int) str
 		bar + " " + InkStyle.Render(value)
 }
 
-// warningBadge draws the reference's amber badge. A badge whose text does not
-// fit the width is cut with the frame's marker rather than wrapping the card out
-// of its budget; the caller's prose under it carries the whole sentence.
+// warningBadge draws the reference's amber badge. A badge whose text does not fit
+// the width is cut with the frame's marker rather than wrapping the card out of
+// its budget; the caller's prose under it carries the whole sentence.
+//
+// No screen draws it today: the utilities theme card carried "Not available on
+// this host" until the badge was found to be denying the installer's own theme
+// picker because a DESKTOP switch was missing. It stays as the grammar's badge --
+// the vocabulary is one file, and a surface that really has a warning to shout
+// takes this shape rather than a new one.
 func warningBadge(text string, width int) []string {
 	// The badge's border and padding spend four columns, so the label is cut to
 	// leave them room: an over-wide badge would be clipped by its card and lose

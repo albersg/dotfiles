@@ -25,6 +25,12 @@ const (
 	updateTableCheckWidth = 2
 	updateTableScrollCol  = 1
 	updateTableGap        = 2
+
+	// updateTableNoteRows is the rows the window's two notes hold: how many rows
+	// above it and how many below it the window hid. They are reserved whether or
+	// not the window draws them, so reaching the first or the last row cannot
+	// change the card's height and move the frame around it.
+	updateTableNoteRows = 2
 )
 
 // updateCenterWide reports whether the reference's two-column update screen fits
@@ -41,7 +47,7 @@ func (m Model) updateCenterWide(l layout, budget int) bool {
 func (m Model) renderUpdateCenterWide(l layout, budget int) string {
 	hints := m.updateCenterHints()
 	left := m.updateCenterTableColumn(l.Left, budget)
-	right := m.updateCenterDetailColumn(l.Right)
+	right := m.updateCenterDetailColumn(l.Right, budget)
 	body := composeColumns(left, right, l)
 
 	vital := frameVital("")
@@ -57,13 +63,16 @@ func (m Model) renderUpdateCenterWide(l layout, budget int) string {
 }
 
 // updateCenterTableColumn is the left column: the stats strip, the filter pills
-// and the grouped table.
+// and the grouped table. The table is given exactly the rows the strip left, so
+// the column is never taller than the frame's body: the card that holds the list
+// used to be measured without the two notes it grows at the ends of its window,
+// and the extra rows pushed the frame past the terminal's last row.
 func (m Model) updateCenterTableColumn(width, budget int) []string {
 	var out []string
 	out = append(out, m.updateCenterStatsStrip(width)...)
 	out = append(out, "")
 
-	tableRows := max(4, budget-len(out)-3)
+	tableRows := max(cardChromeRows+1, budget-len(out))
 	out = append(out, m.updateCenterTable(width, tableRows)...)
 	return out
 }
@@ -150,6 +159,14 @@ func (m Model) updateCenterVisibleGroups() []updateCenterVisibleGroup {
 // columns on the header row, a titled group per manager with its own count, one
 // row per entry, and a scrollbar on the right. The row under the cursor is one
 // filled bar; the group headers are not cursor positions.
+//
+// The list scrolls INSIDE the card. `rows` is the whole card, borders included, so
+// the window is measured against the rows the heading, the rule under it and the
+// two notes leave -- and the notes hold their rows whether or not the window draws
+// them, because a card that grew a row when the cursor reached an end would move
+// the header above it and the footer under it by that row. A list that fits draws
+// no notes and a card as tall as the list, which is the same height at every
+// cursor position too.
 func (m Model) updateCenterTable(width, rows int) []string {
 	groups := m.updateCenterVisibleGroups()
 	content := cardContentWidth(width)
@@ -201,25 +218,37 @@ func (m Model) updateCenterTable(width, rows int) []string {
 			}
 		}
 	}
-	start, end := listWindow(focusLine, max(1, rows-1), len(all))
-	window := all[start:end]
+
+	// The heading and the rule under it are the table's own; the rows left are the
+	// list's, and two of them are held for the notes at the window's ends.
+	listRows := max(1, rows-cardChromeRows-2)
+	start, end := 0, len(all)
+	if len(all) > listRows {
+		start, end = listWindow(focusLine, max(1, listRows-updateTableNoteRows), len(all))
+	}
 
 	body := []string{header, rule(content)}
-	for i, line := range window {
-		absolute := start + i
+	for i := start; i < end; i++ {
+		line := all[i]
 		if line.isItem {
 			body = append(body, m.updateCenterTableRow(line.item, focused, hasFocus, content,
-				nameWidth, versionWidth, ownerWidth, scopeWidth, updateScrollbarCell(absolute, start, end, len(all))))
+				nameWidth, versionWidth, ownerWidth, scopeWidth, updateScrollbarCell(i, start, end, len(all))))
 			continue
 		}
 		// The group header carries its own count and the thin group mark.
 		body = append(body, BrandStyle.Render(truncate(line.header, content)))
 	}
-	if start > 0 {
-		body = append(body, MutedStyle.Render(fmt.Sprintf("↑ %d more above", start)))
-	}
-	if end < len(all) {
-		body = append(body, MutedStyle.Render(fmt.Sprintf("↓ %d more below", len(all)-end)))
+	if len(all) > listRows {
+		// Both note rows are drawn, blank where the window has nothing to report:
+		// the card keeps its height, so the two rows under it stay where they were.
+		above, below := "", ""
+		if start > 0 {
+			above = MutedStyle.Render(fmt.Sprintf("↑ %d more above", start))
+		}
+		if end < len(all) {
+			below = MutedStyle.Render(fmt.Sprintf("↓ %d more below", len(all)-end))
+		}
+		body = append(body, above, below)
 	}
 	return card("", "", width, body)
 }
@@ -290,14 +319,26 @@ func updateScrollbarCell(index, start, end, total int) string {
 // updateCenterDetailColumn is the right column: the entry under the cursor and
 // the keys this screen reads. A cursor on an action row gets the action card
 // alone, which is the truth: no entry is under it.
-func (m Model) updateCenterDetailColumn(width int) []string {
+func (m Model) updateCenterDetailColumn(width, budget int) []string {
+	// The keys are the shorter card and the one that must not be cut through, so
+	// they are measured first and the entry's card takes the rows that are left. A
+	// long note then cuts the entry's card with the frame's marker instead of
+	// growing the body past the rows the frame gave it.
+	actions := card("Actions", "Keyboard shortcuts", width, m.updateCenterActionLines(cardContentWidth(width)))
+	entry, ok := m.updateCenterFocusedItem()
+	if !ok {
+		return actions
+	}
+
 	var out []string
-	if item, ok := m.updateCenterFocusedItem(); ok {
-		out = append(out, card(item.Name, item.Origin()+" package", width, m.updateCenterItemCardBody(item, cardContentWidth(width)))...)
+	room := budget - len(actions) - 1 // the blank row between the two cards
+	if room >= cardChromeRows+1 {
+		body := m.updateCenterItemCardBody(entry, cardContentWidth(width))
+		body = clipLines(body, room-cardChromeRows, cardContentWidth(width))
+		out = append(out, card(entry.Name, entry.Origin()+" package", width, body)...)
 		out = append(out, "")
 	}
-	out = append(out, card("Actions", "Keyboard shortcuts", width, m.updateCenterActionLines(cardContentWidth(width)))...)
-	return out
+	return append(out, actions...)
 }
 
 // updateCenterItemCardBody is the focused entry's card: its full facts, with the

@@ -1,6 +1,9 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                
+                                                                                
+                                                                                
   Stop a process                                                                
   Process: node, pid 4242, owned by alber.                                      
   Executable: /usr/bin/node                                                     
@@ -14,9 +17,6 @@
   observed, not what was expected.                                              
                                                                                 
   ← Back                                                                        
-                                                                                
-                                                                                
-                                                                                
                                                                                 
                                                                                 
                                                                                 
