@@ -1595,3 +1595,77 @@ screens. And the description function now reaches the screen renderer as a
 parameter, so a new section screen must pass it (`renderThemeScreen(Model.xDescription, …)`)
 rather than a slice; a screen that passed the wrong one would cap its card at
 another screen's reading.
+
+L30. The trainer's six screens moved onto the shared grammar, and the trainer
+stopped spelling its state with emoji. This is the slice L6 and L19 named as
+outstanding for the trainer.
+
+- **Two shapes, one preference** (`trainer_cards.go`). Where the frame holds two
+  columns and the rows the body needs, the six screens draw the reference's cards
+  through `card`/`cardGroups`/`cardRowLines`/`numberedStepLines`/`iconFactLines`/
+  `statBoxLines` — the same functions the sections, the review, the questions, the
+  reference pages, the flow screens, the ports and the reports call, not a second
+  vocabulary. Everywhere else (the 80x24 floor, the 60x20 floor, and any frame too
+  short for the card) they keep the compact body they shipped with, so the four
+  trainer goldens, `TestTrainerScreensFitTheFrame` over the whole corpus and the
+  documented floor arithmetic are unchanged. The gate is
+  `trainerCardsFit`/`trainerBodyBudget`: the frame and the rows, never the cursor.
+- **The menu is two cards.** The modules are grammar rows (the state's glyph in the
+  gutter, the module's name, its state word and its commands on the muted line, the
+  two meters trailing) in a card captioned with the run's own counts, windowed
+  through `utilitiesRowWindow` with the notes that say what it hid. The module
+  under the cursor is a card of its own: the chip is the module's name, the caption
+  its state word, the first group the three-rung ladder (lessons, practice, boss)
+  with the recorded counts, the second the practice reading as fact rows. Every
+  number is `ModuleProgress`, `GetPracticeStatsForModule`, `ReviewsDue` or the
+  module's own `BossName`; nothing is invented and the card creates no records.
+- **The playing screens are two cards.** `renderTrainerExercise` and
+  `renderTrainerBoss` compose the code window in a `Code` card captioned with the
+  rows on screen, and the mission in a card chipped with the screen's own word
+  (`Mission`, `Challenge`) and captioned with the exercise's identifier, the answer
+  under an `Answer` divider and the feedback area under the card. `trainerWideTextBudget`
+  now subtracts the cards' own rows (`trainerCardChrome`, `trainerExerciseCardChrome`)
+  and is still the one budget the renderer and the scroll keys read, so the window
+  the keys move is the window the card draws. The boss joins the two-column
+  predicate; its header chips (lives, step, countdown, combo) are untouched.
+- **The result screens are a card.** The exercise result states what was answered
+  as fact rows, the verdict's message, the explanation and, for a buffer-verified
+  exercise, both buffers under their own dividers. The fight's result puts the run's
+  numbers in stat boxes and the verdict, the measured fight time and the module's
+  best under the `Summary` card's dividers. The compact heads keep their own copy:
+  `trainerBossResultSentences` is one source for both shapes, so the floor and the
+  card cannot say the outcome two ways.
+- **No emoji, and the class guard now measures the trainer.** The trainer's own
+  copy carried emoji in eight places: the boss header's crossed swords, the three
+  celebration lines, the weak-exercise warning, the hint label's bulb, the reset
+  prompt's warning, the erased-profile broom, the victory trophy and every handler
+  message (`💀`, `⏰`, `🔒`, `🎉`, `🔁`, `🔄`, `✨`). They are Nerd Font glyphs
+  (`\uf017`, `\uf021`, `\uf071`, `\uf0e2`, `\uf0eb`) or plain marks (`★`, `◆`,
+  `✗`) now, all one cell, so a terminal without an emoji font draws the line. The
+  module `Icon` fields in `trainer/types.go` still hold emoji; no renderer draws
+  them (the menu has drawn the status glyph instead since the status-word slice), and
+  they are domain data, so the clone stays untouched. `TestNoInstallerScreenDrawsAnEmojiBox`
+  no longer excludes the trainer, so the class rule now covers all 96 screens.
+
+Guards (`trainer_cards_test.go`): the six screens draw the grammar's borders, rule
+and chip at 160x50 and none of them at 80x24; every screen keeps its own words; the
+menu card is the profile it read (states, meters, ladder, accuracy, weakest) and its
+top border does not move as the cursor walks it at a short wide frame; the playing
+screens keep the code gutter, the mission, the answer field and the caption that
+names the window; the result card keeps the verdict, the facts, the explanation and
+both buffers; the fight's card states the run's numbers, the verdict and the
+measured time and best; all six fit 160x50/140x44/200x60/227x62/160x24; and no frame
+of any screen at either size draws a box emoji with any message `update.go` can
+assign to `TrainerMessage` (the guard parses the file, so it measures the handler's
+copy rather than a second copy written by hand). Goldens: `TestTrainerMenuWideGolden`,
+`TestTrainerLessonWideGolden`, `TestTrainerBossWideGolden`,
+`TestTrainerResultWideGolden` and `TestTrainerBossResultWideGolden` are new;
+`TestTrainerMenuGolden` and `TestTrainerBossGolden` were regenerated for the emoji
+removal (the changed lines are exactly the `⚠️ Weakest:` prefix and the `⚔️ ` on the
+boss header). The review capture now writes the trainer's six screens too.
+
+Not taken: the compact bodies still draw chips and guttered blocks rather than cards
+— that is what the floor measures, and the cards need two columns. The result and the
+boss-result screens have no two-column shape (they are one card across the
+composition), so their 80x24 layout and their 160x50 card are the same shape at two
+measures.

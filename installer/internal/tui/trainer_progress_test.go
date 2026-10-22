@@ -16,7 +16,7 @@ import (
 // clearTrainerProfile already reports its own save failure in this shape; the
 // defect was every other save discarding the error, so a read-only HOME lost the
 // player's progress without a word.
-const trainerSaveWarning = "⚠️ Could not save trainer progress"
+const trainerSaveWarning = "Could not save trainer progress"
 
 // unwritableTrainerHome points $HOME at a regular file, so trainer.SaveStats
 // cannot create ~/.config/dotfiles-trainer and fails with ENOTDIR. A read-only

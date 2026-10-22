@@ -66,6 +66,15 @@ var redesignedPages = []struct {
 		m.SelectedBackup = 0
 		return m
 	}},
+	// The trainer's six screens draw the reference grammar's cards where the frame
+	// holds two columns and the compact body everywhere else, so a review of the
+	// pass reads both shapes of each one.
+	{"trainer-menu", func(t *testing.T) Model { return trainerCardModel(t, ScreenTrainerMenu, 80, 24) }},
+	{"trainer-lesson", func(t *testing.T) Model { return trainerCardModel(t, ScreenTrainerLesson, 80, 24) }},
+	{"trainer-practice", func(t *testing.T) Model { return trainerCardModel(t, ScreenTrainerPractice, 80, 24) }},
+	{"trainer-boss", func(t *testing.T) Model { return trainerCardModel(t, ScreenTrainerBoss, 80, 24) }},
+	{"trainer-result", func(t *testing.T) Model { return trainerCardModel(t, ScreenTrainerResult, 80, 24) }},
+	{"trainer-boss-result", func(t *testing.T) Model { return trainerCardModel(t, ScreenTrainerBossResult, 80, 24) }},
 }
 
 // TestCaptureEveryRedesignedPage writes the frames of the pages this pass changed,

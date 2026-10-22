@@ -6080,17 +6080,40 @@ func trainerLivesGlyphs(remaining, total int) string {
 // unlocked-and-lessons-complete, so the practice rung already covers it -- the
 // emoji ladder this replaces had a dead 📚 branch for the same reason.
 func trainerModuleStatus(unlocked, bossDefeated, bossReady, practiceReady bool) string {
+	return trainerModuleStatusGlyph(unlocked, bossDefeated, bossReady, practiceReady) + " " +
+		trainerModuleStatusWord(unlocked, bossDefeated, bossReady, practiceReady)
+}
+
+// trainerModuleStatusGlyph is the mark a module's state wears. It is one cell and
+// a plain text glyph, so the menu's gutter still reads on a terminal with no emoji
+// font; the word that follows it carries the state when even the glyph is missing.
+func trainerModuleStatusGlyph(unlocked, bossDefeated, bossReady, practiceReady bool) string {
 	switch {
 	case !unlocked:
-		return "✗ locked"
+		return "✗"
 	case bossDefeated:
-		return "✓ cleared"
-	case bossReady:
-		return "● boss"
-	case practiceReady:
-		return "● practice"
+		return "✓"
+	case bossReady, practiceReady:
+		return "●"
 	default:
-		return "○ lessons"
+		return "○"
+	}
+}
+
+// trainerModuleStatusWord names the same state in words. It is the ladder the
+// module's gates open in: locked, lessons, practice, boss, cleared.
+func trainerModuleStatusWord(unlocked, bossDefeated, bossReady, practiceReady bool) string {
+	switch {
+	case !unlocked:
+		return "locked"
+	case bossDefeated:
+		return "cleared"
+	case bossReady:
+		return "boss"
+	case practiceReady:
+		return "practice"
+	default:
+		return "lessons"
 	}
 }
 
@@ -6167,19 +6190,10 @@ func trainerWeakExerciseText(progress *trainer.ModuleProgress, practice trainer.
 		return ""
 	}
 
-	const prefix = "⚠️ Weakest: "
+	const prefix = trainerWeakLabel + " "
 	const separator = " · "
 
-	entries := make([]string, 0, len(practice.WeakestExercises))
-	for _, id := range practice.WeakestExercises {
-		entry := id
-		if progress != nil && progress.ExerciseStats != nil {
-			if exStats := progress.ExerciseStats[id]; exStats != nil && exStats.TotalWrong > 0 {
-				entry = fmt.Sprintf("%s (%d✗)", id, exStats.TotalWrong)
-			}
-		}
-		entries = append(entries, entry)
-	}
+	entries := trainerWeakEntries(progress, practice)
 
 	// Keep at least one entry so a single over-long identifier still surfaces.
 	for len(entries) > 1 {
@@ -6190,6 +6204,36 @@ func trainerWeakExerciseText(progress *trainer.ModuleProgress, practice trainer.
 	}
 
 	return prefix + strings.Join(entries, separator)
+}
+
+// trainerWeakLabel names the exercises a module misses most. It is a word rather
+// than a glyph: the warning sign it replaced is an emoji, and a terminal without
+// an emoji font drew a box where the label should be.
+const trainerWeakLabel = "Weakest:"
+
+// trainerWeakEntryText is the same list without its label, for the grammar's fact
+// rows: the label is the row's own, so the value carries only the exercises and
+// the counts recorded against them.
+func trainerWeakEntryText(progress *trainer.ModuleProgress, practice trainer.PracticeStats) string {
+	return strings.Join(trainerWeakEntries(progress, practice), " · ")
+}
+
+// trainerWeakEntries is the recorded weakest exercises in the order the practice
+// stats return them -- most wrong first -- each with the wrong count the profile
+// holds for it. It creates no records: an exercise with no entry is listed by its
+// identifier alone.
+func trainerWeakEntries(progress *trainer.ModuleProgress, practice trainer.PracticeStats) []string {
+	entries := make([]string, 0, len(practice.WeakestExercises))
+	for _, id := range practice.WeakestExercises {
+		entry := id
+		if progress != nil && progress.ExerciseStats != nil {
+			if exStats := progress.ExerciseStats[id]; exStats != nil && exStats.TotalWrong > 0 {
+				entry = fmt.Sprintf("%s (%d✗)", id, exStats.TotalWrong)
+			}
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 // trainerMenuVital is the trainer menu's vital sign: the run's boss progress as
@@ -6214,23 +6258,41 @@ func (m Model) trainerMenuVital() string {
 // exercises are a guttered block under its row instead of loose indented lines,
 // which is what makes them read as that module's detail rather than as three
 // more list entries.
+//
+// Where the frame holds two columns and the rows, the same list is drawn as the
+// reference grammar's cards (trainerMenuCardBody): the modules as grammar rows in
+// the card at the left with the module under the cursor in the card at the right.
+// The floor keeps the compact body below, so the 80x24 goldens and the trainer's
+// own frame guard keep the screen they measure.
 func (m Model) renderTrainerMenu() string {
 	inner := trainerInnerWidth(m)
+	l := layoutFor(m)
 
-	rows := []string{
-		headerRow("Vim Mastery Trainer", m.trainerMenuVital(), inner),
-		headerRule(inner),
+	header := []string{headerRow("Vim Mastery Trainer", m.trainerMenuVital(), inner), headerRule(inner)}
+
+	// The footer is the same legend in both shapes, so the keys the screen answers
+	// to cannot depend on which body it drew.
+	footer := m.footerBar(inner, []installerHint{
+		hintUp, hintDown,
+		trainerHintLesson, trainerHintPractice, trainerHintBoss,
+		trainerHintReset, trainerHintResetAll, trainerHintBack,
+	})
+
+	if cards, ok := m.trainerMenuCardBody(l, m.trainerBodyBudget(len(footer))); ok {
+		rows := append(append([]string{}, header...), placeBody(cards, m.trainerBodyBudget(len(footer)))...)
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+		return strings.Join(append(rows, footer...), "\n")
+	}
+
+	rows := append(append([]string{}, header...),
 		// The selected row's bar and the brand rule are near-identical tones; without
 		// a blank row between them the top of the list and the header merge into one
 		// lavender band exactly where the separator is needed.
 		"",
-	}
+	)
 
 	for i, module := range m.TrainerModules {
-		isUnlocked := m.TrainerStats != nil && m.TrainerStats.IsModuleUnlocked(module.ID)
-		isBossDefeated := m.TrainerStats != nil && m.TrainerStats.IsBossDefeated(module.ID)
-		isPracticeReady := m.TrainerStats != nil && m.TrainerStats.IsPracticeReady(module.ID)
-		isBossReady := m.TrainerStats != nil && m.TrainerStats.IsBossReady(module.ID)
+		isUnlocked, isBossDefeated, isBossReady, isPracticeReady := m.trainerModuleStates(module)
 
 		// The status is a glyph plus a word, so a monochrome terminal and one with
 		// no emoji font lose nothing. It is padded so every module name starts on
@@ -6289,11 +6351,6 @@ func (m Model) renderTrainerMenu() string {
 	// the verbs as verbs, the same way every installer screen's footer does. The
 	// menu's eight hints pack to two rows at the 80-column floor, the height the
 	// rows above already reserve.
-	footer := m.footerBar(inner, []installerHint{
-		hintUp, hintDown,
-		trainerHintLesson, trainerHintPractice, trainerHintBoss,
-		trainerHintReset, trainerHintResetAll, trainerHintBack,
-	})
 	if m.Height > trainerFloorHeight {
 		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	}
@@ -6340,38 +6397,36 @@ func (m Model) trainerTextBudget(exercise *trainer.Exercise) (missionRows []stri
 	return missionRows, codeRows
 }
 
-// trainerRightColumnChrome is the right column's fixed rows: the mission chip,
-// the answer chip, the answer line and the fixed feedback area. One mission row
-// on top of it is the shortest the column can be.
-const trainerRightColumnChrome = 5
-
 // trainerWideTextBudget is the two-column budget for an exercise screen. The
 // footer the screen will actually draw decides how many body rows the frame
 // leaves, the code window takes them all in its own column, and the mission
 // wraps in the right column with the rows the answer and the feedback do not
 // need. The mission is capped at what the right column can hold, which is the
 // existing cut marker's job at an extreme height, not a normal case.
+//
+// Both columns are the reference grammar's cards (trainer_cards.go), so each one
+// keeps the rows its own edges and its rule spend -- trainerCardChrome for the
+// code card, trainerExerciseCardChrome for the mission card, the answer's divider
+// and the feedback area. The keys scroll by the same numbers, because
+// trainerTextBudget is the one budget the renderer and the scroll keys read.
 func (m Model) trainerWideTextBudget(exercise *trainer.Exercise, l layout) (missionRows []string, codeRows int) {
 	// The budget reserves the full hint set, including the scroll key, so the
 	// body arithmetic cannot change when the drawn footer drops it on an exercise
 	// whose code fits. The screen may spend one row less than the budget in that
 	// case; it never spends more than the terminal.
-	bodyRows := installerBodyRows(m.Height, m.footerBarRows(l.Inner, m.trainerExerciseHints(true)))
-	if m.Height > trainerFloorHeight {
-		bodyRows -= m.companionHeightNow()
-	}
+	bodyRows := m.trainerBodyBudget(m.footerBarRows(l.Inner, m.trainerExerciseHints(true)))
 
-	// The code window owns the left column: the column minus its chip.
-	codeRows = bodyRows - 1
+	// The code window owns the left column: the column minus the card that holds it.
+	codeRows = bodyRows - trainerCardChrome
 	if codeRows < trainerCodeMinRows {
 		codeRows = trainerCodeMinRows
 	}
 
-	maxMission := bodyRows - trainerRightColumnChrome
+	maxMission := bodyRows - trainerExerciseCardChrome
 	if maxMission < 1 {
 		maxMission = 1
 	}
-	missionRows = wrapText(exercise.Mission, l.Right-blockGutterWidth, maxMission)
+	missionRows = wrapText(exercise.Mission, cardContentWidth(l.Right), maxMission)
 	return missionRows, codeRows
 }
 
@@ -6643,12 +6698,13 @@ func (m Model) trainerExerciseHints(scrolls bool) []installerHint {
 // arithmetic.
 //
 // Where the installer's own screens have room for two columns (see layoutFor),
-// the exercise screen composes the same two columns: the code window on the
-// left and the mission, the answer and the feedback on the right, through the
+// the exercise screen composes the same two columns as the reference grammar's
+// cards (trainerExerciseCardBody): the code window in its card on the left and
+// the mission, the answer and the feedback in the card on the right, through the
 // shared composeColumns. The code window then keeps the rows the stacked right
 // column no longer needs, so a wide terminal shows more code instead of a
-// narrower window in the same shape. Below the floor the body is the one
-// column it has always been.
+// narrower window in the same shape. Below the floor the body is the one column
+// it has always been.
 func (m Model) renderTrainerExercise(mode string) string {
 	exercise := m.trainerCurrentExercise()
 	if exercise == nil {
@@ -6666,8 +6722,9 @@ func (m Model) renderTrainerExercise(mode string) string {
 	if m.trainerTwoColumnLayout(l) {
 		_, codeRows := m.trainerWideTextBudget(exercise, l)
 		hints := m.trainerExerciseHints(codeRows < len(exercise.Code))
-		rows = append(rows, m.trainerExerciseColumns(exercise, l)...)
 		footer := m.footerBar(inner, hints)
+		budget := m.trainerBodyBudget(m.footerBarRows(l.Inner, m.trainerExerciseHints(true)))
+		rows = append(rows, placeBody(m.trainerExerciseColumns(exercise, "Mission", InfoStyle, l), budget)...)
 		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 		rows = append(rows, footer...)
 		return strings.Join(rows, "\n")
@@ -6708,40 +6765,31 @@ func (m Model) renderTrainerExercise(mode string) string {
 
 // trainerExerciseColumns composes the exercise screen's two-column body: the
 // code window in the left column and the mission, the answer and the feedback
-// in the right one. It is the one place the two halves are built, and both are
-// measured against the layout's own columns, so the width the renderer draws
-// with is the width layoutFor granted.
-func (m Model) trainerExerciseColumns(exercise *trainer.Exercise, l layout) []string {
-	mission, codeRows := m.trainerWideTextBudget(exercise, l)
-	viewport := m.trainerCodeViewport(exercise, codeRows, l.Left-blockGutterWidth-trainerGutterWidth)
-
-	left := append([]string{viewport.label()}, gutteredBlock(viewport.render())...)
-
-	missionLines := make([]string, len(mission))
-	for i, row := range mission {
-		missionLines[i] = InfoStyle.Render(row)
-	}
-	right := []string{chip("Mission")}
-	right = append(right, gutteredBlock(missionLines)...)
-	right = append(right,
-		chip("Answer"),
-		RuleStyle.Render("│ ")+KeyStyle.Render(tailToWidth(m.trainerAnswer(), l.Right-blockGutterWidth)),
-	)
-	right = append(right, m.trainerFeedbackRowsWidth(InfoStyle, l.Right)...)
-
-	return composeColumns(left, right, l)
+// in the right one, each in the reference grammar's card. It is the one place the
+// two halves are built, and both are measured against the layout's own columns,
+// so the width the renderer draws with is the width layoutFor granted. title is
+// the screen's own word for the mission block -- "Mission" for a lesson or a
+// practice run, "Challenge" for a boss step.
+func (m Model) trainerExerciseColumns(exercise *trainer.Exercise, title string, feedback lipgloss.Style, l layout) []string {
+	return m.trainerExerciseCardBody(exercise, title, feedback, l)
 }
 
 // trainerTwoColumnLayout reports whether the current trainer screen composes
 // two columns. It is the single predicate the renderer and the scroll/render
 // budget both read, so neither can decide "wide" on its own. It requires the
 // shared layout's own two-column room (layoutFor, the same threshold and the
-// same columns as every installer screen), an exercise screen -- the boss and
-// the menu keep their one-column bodies -- and a frame tall enough to hold the
-// right column's fixed chrome plus one mission row. When the frame is too short
-// the screen falls back to the one-column body rather than overflow it.
+// same columns as every installer screen), one of the three screens that show an
+// exercise -- the menu and the two result screens keep their own bodies -- and a
+// frame tall enough to hold the right column's card, its answer and its feedback
+// plus one mission row. When the frame is too short the screen falls back to the
+// one-column body rather than overflow it.
 func (m Model) trainerTwoColumnLayout(l layout) bool {
-	if !l.TwoColumn || (m.Screen != ScreenTrainerLesson && m.Screen != ScreenTrainerPractice) {
+	switch m.Screen {
+	case ScreenTrainerLesson, ScreenTrainerPractice, ScreenTrainerBoss:
+	default:
+		return false
+	}
+	if !l.TwoColumn {
 		return false
 	}
 	// The budget reserves the full hint set, including the scroll key, so the
@@ -6749,7 +6797,7 @@ func (m Model) trainerTwoColumnLayout(l layout) bool {
 	// whose code fits. The screen may spend one row less than the budget in that
 	// case; it never spends more than the terminal.
 	bodyRows := installerBodyRows(m.Height, m.footerBarRows(l.Inner, m.trainerExerciseHints(true)))
-	return bodyRows >= trainerRightColumnChrome+1
+	return bodyRows >= trainerExerciseCardChrome+1
 }
 
 // renderLineWithTwoCursors renders a line with both start and current cursor
@@ -6916,7 +6964,8 @@ func (m Model) renderTrainerBoss() string {
 	}
 
 	boss := state.CurrentBoss
-	inner := trainerInnerWidth(m)
+	l := layoutFor(m)
+	inner := l.Inner
 	exercise := state.CurrentExercise
 
 	// Every element below is one terminal row. The boss screen spends the same
@@ -6925,14 +6974,14 @@ func (m Model) renderTrainerBoss() string {
 	// is where its whole second half used to be. The lives and the countdown are
 	// chips in the header rather than the two label rows they used to stack.
 	rows := []string{
-		headerRow("⚔️ Boss · "+boss.Name, m.trainerBossVital(), inner),
+		headerRow("Boss · "+boss.Name, m.trainerBossVital(), inner),
 		headerRule(inner),
-		chip("Challenge"),
 	}
 
 	if state.BossStep >= len(boss.Steps) || exercise == nil {
 		// No step is on screen, so there is no code window to size around. The
 		// legend packs through the shared footer component like every other.
+		rows = append(rows, chip("Challenge"))
 		rows = append(rows, m.trainerFeedbackRows(WarningStyle)...)
 		hints := []installerHint{
 			trainerHintTypeCommand, trainerHintSubmit, trainerHintEscToken,
@@ -6944,6 +6993,30 @@ func (m Model) renderTrainerBoss() string {
 		return strings.Join(rows, "\n")
 	}
 
+	// Where the frame holds two columns the challenge is the reference grammar's
+	// cards, exactly as a lesson is: the code window in its card at the left and
+	// the challenge, the answer and the feedback in the card at the right. The
+	// boss keeps its own word for the mission block.
+	if m.trainerTwoColumnLayout(l) {
+		_, codeRows := m.trainerWideTextBudget(exercise, l)
+		hints := []installerHint{
+			trainerHintTypeCommand, trainerHintSubmit, trainerHintHint,
+		}
+		if codeRows < len(exercise.Code) {
+			// The scroll key is named only while the card has rows off screen, the
+			// rule the exercise screens' legend follows.
+			hints = append(hints, trainerHintScroll)
+		}
+		hints = append(hints, trainerHintForfeit, trainerHintEscToken, trainerHintBlockVisual)
+		budget := m.trainerBodyBudget(m.footerBarRows(l.Inner, m.trainerExerciseHints(true)))
+		rows = append(rows, placeBody(m.trainerExerciseColumns(exercise, "Challenge", WarningStyle, l), budget)...)
+		footer := m.footerBar(inner, hints)
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+		rows = append(rows, footer...)
+		return strings.Join(rows, "\n")
+	}
+
+	rows = append(rows, chip("Challenge"))
 	mission, codeRows := m.trainerTextBudget(exercise)
 	missionLines := make([]string, len(mission))
 	for i, row := range mission {
@@ -7005,8 +7078,20 @@ func (m Model) renderTrainerResult() string {
 	rows := []string{
 		headerRow(name, vital, inner),
 		headerRule(inner),
-		chip("Summary"),
 	}
+
+	// Where the frame holds the card, the same facts are the reference grammar's
+	// card (trainerResultCardBody): the exercise as fact rows, the verdict's
+	// message, the explanation and the buffer the answer produced. The floor keeps
+	// the compact body below.
+	footer := m.footerBar(inner, []installerHint{trainerHintContinue, hintBack})
+	if cards, ok := m.trainerResultCardBody(layoutFor(m), m.trainerBodyBudget(len(footer))); ok {
+		rows = append(rows, placeBody(cards, m.trainerBodyBudget(len(footer)))...)
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+		return strings.Join(append(rows, footer...), "\n")
+	}
+
+	rows = append(rows, chip("Summary"))
 
 	// The message is wrapped instead of being left to the frame edge, which cut
 	// the solutions list mid-word.
@@ -7056,7 +7141,6 @@ func (m Model) renderTrainerResult() string {
 	// creature drawn here reacts to the verdict in the header above it without
 	// costing the screen a row, so the frame it was measured in is unchanged.
 	rows = append(rows, "")
-	footer := m.footerBar(inner, []installerHint{trainerHintContinue, hintBack})
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
 	return strings.Join(rows, "\n")
@@ -7105,39 +7189,33 @@ func (m Model) renderTrainerBossResult() string {
 	rows := []string{
 		headerRow(name, vital, inner),
 		headerRule(inner),
-		chip("Summary"),
 	}
 
-	var summary []string
-	state := m.TrainerGameState
-	if m.TrainerLastCorrect {
-		if state != nil && state.CurrentBoss != nil {
-			summary = append(summary, InfoStyle.Render("You defeated "+state.CurrentBoss.Name+"!"))
-			summary = append(summary, InfoStyle.Render(fmt.Sprintf("Lives remaining: %d/%d %s",
-				state.BossLives, state.CurrentBoss.Lives,
-				trainerLivesGlyphs(state.BossLives, state.CurrentBoss.Lives))))
-		}
-		summary = append(summary, SuccessStyle.Render("🎉 +500 bonus points!"))
-		nextModuleExists := false
-		if state != nil {
-			_, nextModuleExists = trainer.NextModule(state.CurrentModule)
-		}
-		if nextModuleExists {
-			summary = append(summary, SuccessStyle.Render("🔓 Next module unlocked!"))
-		} else {
-			summary = append(summary, SuccessStyle.Render("👑 No modules left — you have cleared them all!"))
-		}
-	} else {
-		if state != nil && state.CurrentBoss != nil {
-			summary = append(summary, MutedStyle.Render(state.CurrentBoss.Name+" wins this time..."))
-		}
-		summary = append(summary, InfoStyle.Render("Keep practicing and try again!"))
+	footer := m.footerBar(inner, []installerHint{trainerHintReturn})
+
+	// Where the frame holds the card, the fight's result is the reference
+	// grammar's own objects (trainerBossResultCardBody): the run's numbers in stat
+	// boxes and the verdict in the card under them. The floor keeps the compact
+	// body below.
+	if cards, ok := m.trainerBossResultCardBody(layoutFor(m), m.trainerBodyBudget(len(footer))); ok {
+		rows = append(rows, placeBody(cards, m.trainerBodyBudget(len(footer)))...)
+		rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
+		return strings.Join(append(rows, footer...), "\n")
 	}
+
+	rows = append(rows, chip("Summary"))
+
+	state := m.TrainerGameState
+	boss := (*trainer.BossExercise)(nil)
+	if state != nil {
+		boss = state.CurrentBoss
+	}
+	summary := m.trainerBossResultSentences(state, boss)
 
 	// The fight's own clock, which the state now measures: how long this fight took and
 	// the module's best. Both are omitted for a fight that never started, so the row
 	// appears only when there is a measurement behind it.
-	if state != nil && state.CurrentBoss != nil {
+	if state != nil && boss != nil {
 		if elapsed := state.BossFightElapsed(); elapsed > 0 {
 			line := fmt.Sprintf("Fight time: %s", trainerFightDuration(elapsed))
 			if best := m.trainerBossBestTime(state.CurrentModule); best > 0 {
@@ -7157,7 +7235,6 @@ func (m Model) renderTrainerBossResult() string {
 	// result screen's; the one nearest the legend carries the companion, which
 	// reacts to the victory or the defeat the header names.
 	rows = append(rows, "")
-	footer := m.footerBar(inner, []installerHint{trainerHintReturn})
 	rows = append(rows, m.trainerCompanionRows(inner, len(rows), len(footer))...)
 	rows = append(rows, footer...)
 	return strings.Join(rows, "\n")

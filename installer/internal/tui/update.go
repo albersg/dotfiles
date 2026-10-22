@@ -4728,7 +4728,7 @@ func (m *Model) revealExerciseHintOnDeadline() {
 // like.
 // trainerHintPrefix is what every hint the trainer reveals is labelled with, so the
 // exercise screen and the boss screen say the same thing about the same kind of help.
-const trainerHintPrefix = "💡 Hint: "
+const trainerHintPrefix = "\uf0eb Hint: "
 
 func trainerHintLabel(exercise *trainer.Exercise) string {
 	if exercise == nil || exercise.Hint == "" {
@@ -4766,13 +4766,13 @@ func (m *Model) expireBossStepOnDeadline() {
 
 	if state.BossLives <= 0 {
 		m.TrainerLastCorrect = false
-		m.TrainerMessage = "💀 DEFEATED! Solution was: " + solutionHint
+		m.TrainerMessage = "✗ DEFEATED! Solution was: " + solutionHint
 		m.Screen = ScreenTrainerBossResult
 		return
 	}
 
 	livesStr := trainerLivesGlyphs(state.BossLives, state.CurrentBoss.Lives)
-	m.TrainerMessage = "⏰ Time's up! Was: " + solutionHint + " | Lives: " + livesStr
+	m.TrainerMessage = "\uf017 Time's up! Was: " + solutionHint + " | Lives: " + livesStr
 }
 
 // trainerResetKey is the trainer menu key that erases the whole profile. It is
@@ -4784,7 +4784,7 @@ const trainerResetKey = "R"
 // treats this prompt as the armed state, so arm-then-confirm needs no extra
 // model field: the first [R] puts the prompt on screen, and only a second [R]
 // clears the profile. Any other key cancels by clearing the prompt.
-const trainerResetPrompt = "⚠️ Press [R] again to erase ALL trainer progress · any other key cancels"
+const trainerResetPrompt = "\uf071 Press [R] again to erase ALL trainer progress · any other key cancels"
 
 // handleTrainerMenuKeys handles module selection in the trainer
 func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
@@ -4813,7 +4813,7 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 		module := m.TrainerModules[m.TrainerCursor]
 
 		if !m.TrainerStats.IsModuleUnlocked(module.ID) {
-			m.TrainerMessage = "🔒 Module locked! Complete previous boss first."
+			m.TrainerMessage = "✗ Module locked! Complete previous boss first."
 			return m, nil
 		}
 
@@ -4868,7 +4868,7 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 			// has to supply one. A due review is work, so a module with reviews due
 			// starts a session even when the boss is already unlocked.
 			if m.TrainerStats.PracticeComplete(module.ID, time.Now()) {
-				m.TrainerMessage = "🎉 Nothing left to practise in " + module.Name + ": the boss is unlocked. Press [b]."
+				m.TrainerMessage = "★ Nothing left to practise in " + module.Name + ": the boss is unlocked. Press [b]."
 				return m, nil
 			}
 
@@ -4886,9 +4886,9 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 				if due == 1 {
 					word = "review"
 				}
-				m.TrainerMessage = fmt.Sprintf("🔁 Review run: %d mastered %s due.", due, word)
+				m.TrainerMessage = fmt.Sprintf("\uf021 Review run: %d mastered %s due.", due, word)
 			} else if m.TrainerStats.IsPracticeComplete(module.ID) {
-				m.TrainerMessage = fmt.Sprintf("🔁 Review run: every exercise is mastered, and the boss still needs %.0f%% of your last %d practice answers.",
+				m.TrainerMessage = fmt.Sprintf("\uf021 Review run: every exercise is mastered, and the boss still needs %.0f%% of your last %d practice answers.",
 					trainer.BossGateAccuracy*100, trainer.BossGateWindow)
 			} else {
 				m.TrainerMessage = ""
@@ -4902,10 +4902,10 @@ func (m Model) handleTrainerMenuKeys(key string) (tea.Model, tea.Cmd) {
 			if m.TrainerStats.IsModuleUnlocked(module.ID) {
 				progress := m.TrainerStats.GetModuleProgress(module.ID)
 				progress.ResetModulePractice()
-				m.TrainerMessage = "🔄 Practice progress reset for " + module.Name + ". Try again!"
+				m.TrainerMessage = "\uf0e2 Practice progress reset for " + module.Name + ". Try again!"
 				saveTrainerStats(&m)
 			} else {
-				m.TrainerMessage = "🔒 Module locked. Complete previous boss first."
+				m.TrainerMessage = "✗ Module locked. Complete previous boss first."
 			}
 		}
 	case "b":
@@ -4955,7 +4955,7 @@ func saveTrainerStats(m *Model) {
 		return
 	}
 	if err := trainer.SaveStats(m.TrainerStats); err != nil {
-		m.TrainerMessage = "⚠️ Could not save trainer progress: " + err.Error()
+		m.TrainerMessage = "\uf071 Could not save trainer progress: " + err.Error()
 	}
 }
 
@@ -4967,18 +4967,18 @@ func (m Model) clearTrainerProfile() (tea.Model, tea.Cmd) {
 	// Remove any stale file first, then write the canonical empty profile, so a
 	// corrupt stats file cannot survive the reset.
 	if err := trainer.ResetStats(); err != nil {
-		m.TrainerMessage = "⚠️ Could not erase trainer progress: " + err.Error()
+		m.TrainerMessage = "\uf071 Could not erase trainer progress: " + err.Error()
 		return m, nil
 	}
 
 	m.TrainerStats = trainer.NewUserStats()
 	if err := trainer.SaveStats(m.TrainerStats); err != nil {
-		m.TrainerMessage = "⚠️ Could not save erased progress: " + err.Error()
+		m.TrainerMessage = "\uf071 Could not save erased progress: " + err.Error()
 		return m, nil
 	}
 
 	m.TrainerCursor = 0
-	m.TrainerMessage = "🧹 All trainer progress erased. Start fresh!"
+	m.TrainerMessage = "\uf0e2 All trainer progress erased. Start fresh!"
 	return m, nil
 }
 
@@ -5065,7 +5065,7 @@ func (m Model) handleTrainerExerciseKeys(key string) (tea.Model, tea.Cmd) {
 			m.TrainerLastCorrect = true
 
 			if validation.IsOptimal {
-				m.TrainerMessage = "✨ Perfect! Optimal solution!"
+				m.TrainerMessage = "★ Perfect! Optimal solution!"
 			} else if validation.IsInSolutions {
 				// Valid predefined solution but not optimal
 				m.TrainerMessage = "✓ Correct! But " + exercise.Optimal + " is more efficient."
@@ -5177,11 +5177,11 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 				// Boss defeated!
 				m.TrainerGameState.RecordBossVictory()
 				m.TrainerLastCorrect = true
-				m.TrainerMessage = "🏆 VICTORY! You defeated " + boss.Name + "!"
+				m.TrainerMessage = "★ VICTORY! You defeated " + boss.Name + "!"
 				m.Screen = ScreenTrainerBossResult
 			} else {
 				if isOptimal {
-					m.TrainerMessage = "✨ Perfect! Next challenge..."
+					m.TrainerMessage = "★ Perfect! Next challenge..."
 				} else {
 					// The answered step, not the next one the fight has moved on to.
 					m.TrainerMessage = "✓ Good! (Optimal: " + answered.Optimal + ") Next..."
@@ -5199,7 +5199,7 @@ func (m Model) handleTrainerBossKeys(key string) (tea.Model, tea.Cmd) {
 			if m.TrainerGameState.BossLives <= 0 {
 				// Game over - show final solution
 				m.TrainerLastCorrect = false
-				m.TrainerMessage = "💀 DEFEATED! Solution was: " + solutionHint
+				m.TrainerMessage = "✗ DEFEATED! Solution was: " + solutionHint
 				m.Screen = ScreenTrainerBossResult
 			} else {
 				// Still has lives - show solution and remaining lives
@@ -5259,9 +5259,9 @@ func (m Model) handleTrainerResultKeys(key string) (tea.Model, tea.Cmd) {
 			// session ends only when there is nothing left to do, so the message
 			// names the thing that is now open rather than claiming mastery twice.
 			if m.TrainerGameState.IsPracticeMode {
-				m.TrainerMessage = "🎉 Practice complete — every exercise mastered and the boss is unlocked. Press [b] on the menu."
+				m.TrainerMessage = "★ Practice complete — every exercise mastered and the boss is unlocked. Press [b] on the menu."
 			} else {
-				m.TrainerMessage = "🎉 Lesson complete! Practice mode unlocked!"
+				m.TrainerMessage = "★ Lesson complete! Practice mode unlocked!"
 			}
 			saveTrainerStats(&m)
 			m.Screen = ScreenTrainerMenu

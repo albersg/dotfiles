@@ -112,12 +112,12 @@ func TestEveryDeclaredScreenHasAName(t *testing.T) {
 // which is the same box on the same terminal.
 //
 // The screen list is derived, not written out: every Screen constant model.go
-// declares is measured here by the frame the shared matrix already rendered, so
-// a screen added later is checked by name instead of shrinking the guard. The
-// trainer is excluded by asking isTrainerScreen, not by leaving it out of a
-// hand-written list: its answer line and its save warning keep the emoji its own
-// tests pin (the hint label, the save warning), so its rule stays the one its own
-// guard holds.
+// declares is measured here by the frame the shared matrix already rendered, so a
+// screen added later is checked by name instead of shrinking the guard. The
+// trainer is measured with the rest: its own copy carried emoji (the hint label,
+// the save warning, the result marks) which the redesign replaced with Nerd Font
+// glyphs and plain marks, so its frames are held by the same rule now and its
+// messages by the trainer's own guard (trainer_cards_test.go).
 func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
 	declared := screenConstantsInDeclarationOrder(t)
 	if len(declared) == 0 {
@@ -140,9 +140,6 @@ func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
 	}
 
 	for _, f := range terminalFrames(t) {
-		if isTrainerScreen(f.screen) {
-			continue
-		}
 		check(f.caseName+" at "+f.sizeName, f.screen, f.view)
 	}
 
@@ -166,9 +163,6 @@ func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
 	missing := 0
 	for i, name := range declared {
 		screen := Screen(i)
-		if isTrainerScreen(screen) {
-			continue
-		}
 		if !seen[screen] {
 			missing++
 			t.Errorf("no frame guard renders %s, so this guard cannot measure it: add it to a case list", name)
@@ -180,7 +174,7 @@ func TestNoInstallerScreenDrawsAnEmojiBox(t *testing.T) {
 	if frames == 0 {
 		t.Fatal("the guard measured no screen, so it proves nothing")
 	}
-	t.Logf("measured %d installer frames, the WSL resource screen among them, for emoji; the trainer's screens keep their own guard", frames)
+	t.Logf("measured %d frames, the trainer's six and the WSL resource screen among them, for emoji", frames)
 }
 
 // firstBoxEmoji returns the first rune in s that a terminal without an emoji

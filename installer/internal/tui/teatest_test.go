@@ -3660,7 +3660,7 @@ func TestTrainerHintLabelOmitsAnEmptyHint(t *testing.T) {
 		t.Errorf("trainerHintLabel with no hint = %q, want no label: a dropped hint must render nothing", got)
 	}
 	exercise := &trainer.Exercise{Hint: "dd deletes the line"}
-	if got, want := trainerHintLabel(exercise), "💡 Hint: dd deletes the line"; got != want {
+	if got, want := trainerHintLabel(exercise), trainerHintPrefix+"dd deletes the line"; got != want {
 		t.Errorf("trainerHintLabel = %q, want %q", got, want)
 	}
 }
@@ -3700,7 +3700,7 @@ func TestBossTabRevealsTheStepHint(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	got := next.(Model)
-	if want := "💡 Hint: " + exercise.Hint; got.TrainerMessage != want {
+	if want := "\uf0eb Hint: " + exercise.Hint; got.TrainerMessage != want {
 		t.Errorf("TrainerMessage after Tab on the boss screen = %q, want %q", got.TrainerMessage, want)
 	}
 }

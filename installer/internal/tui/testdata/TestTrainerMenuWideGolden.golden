@@ -1,0 +1,50 @@
+                                                                                                                                                                
+   Vim Mastery Trainer                                                                                            ▓░░░░░ 1/9 · Score 0 · Streak 0 · Bosses 1/9  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ╭─ Modules ─────────────────────────────────── 9 modules · 1 cleared ╮  ╭─ Horizontal Motions ──────────────────────────────────────────────────── cleared ╮  
+  │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
+  │ ▸ Horizontal Motions             Done ▓░░ 7/15 Mastered ░░░ 2/19 › │  │  1  Lessons                                                                      │  
+  │   cleared · w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^            │  │    7/15 completed                                                                │  
+  │ ○ Vertical Motions               Done ░░░ 0/22 Mastered ░░░ 0/22 › │  │  2  Practice                                                                     │  
+  │   lessons · j, k, gg, G, {, }, H, M, L, ctrl+d/u/f/b               │  │    60% over 10 answers                                                           │  
+  │ ✗ Text Objects                   Done ░░░ 0/21 Mastered ░░░ 0/21 › │  │  3  Boss                                                                         │  
+  │   locked · viw, vaw, vi", va", vi{, diw, daw, ci", di{, yiw, yi"   │  │    The Line Walker · defeated                                                    │  
+  │ ✗ Change & Repeat                Done ░░░ 0/24 Mastered ░░░ 0/24 › │  ├─ Practice ───────────────────────────────────────────────────────────────────────┤  
+  │   locked · d, c, dd, D, C, x, *, #, n, N, gn, cgn, dgn, .          │  │  Accuracy           60% over 10 answers                                         │  
+  │ ✗ Substitution                   Done ░░░ 0/22 Mastered ░░░ 0/22 › │  │  Weakest            horizontal_003 (3✗) · horizontal_004 (1✗)                   │  
+  │   locked · r, R, s, S, ~, gu, gU, J, :s, :%s, flags (g, c, i)      │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  │ ✗ Regex & Vimgrep                Done ░░░ 0/24 Mastered ░░░ 0/24 › │                                                                                        
+  │   locked · /, ?, n, N, *, #, \v, :vimgrep, :copen, :cnext          │                                                                                        
+  │ ✗ Macros                         Done ░░░ 0/24 Mastered ░░░ 0/24 › │                                                                                        
+  │   locked · qa, q, @a, @@, :normal, :g/pattern/                     │                                                                                        
+  │ ✗ Editing & Undo                 Done ░░░ 0/23 Mastered ░░░ 0/23 › │                                                                                        
+  │   locked · i, a, I, A, o, O, <Esc>, u, Ctrl-r, dd, yy, p, P, >>, … │                                                                                        
+  │ ✗ Registers & Indentation        Done ░░░ 0/20 Mastered ░░░ 0/20 › │                                                                                        
+  │   locked · yy, yiw, y$, yw, yj, p, P, "a-"z, "0, dd, x, D, >>, <<  │                                                                                        
+  ╰────────────────────────────────────────────────────────────────────╯                                                                                        
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ● Ready                                     ↑/k up • ↓/j down • [Enter/l] lesson • [p] practice • [b] boss • [r] reset module • [R] reset all • [q/Esc] back  

@@ -1143,7 +1143,7 @@ func TestTabIsNotStolenFromTheTrainer(t *testing.T) {
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	got := next.(Model)
-	if want := "💡 Hint: " + exercise.Hint; got.TrainerMessage != want {
+	if want := "\uf0eb Hint: " + exercise.Hint; got.TrainerMessage != want {
 		t.Errorf("TrainerMessage after Tab = %q, want %q: the panel key stole the trainer's hint", got.TrainerMessage, want)
 	}
 }

@@ -1631,7 +1631,7 @@ func TestTrainerHintIsRevealedWhenDeadlinePasses(t *testing.T) {
 	// Crossing the deadline reveals the hint without a key press.
 	*now = now.Add(time.Second)
 	m = tickTrainer(m)
-	want := "💡 Hint: " + exercise.Hint
+	want := "\uf0eb Hint: " + exercise.Hint
 	if m.TrainerMessage != want {
 		t.Errorf("TrainerMessage = %q after the deadline, want %q", m.TrainerMessage, want)
 	}
@@ -2166,7 +2166,7 @@ func TestTrainerMenuShowsModuleProgress(t *testing.T) {
 	}
 	// The detail block is guttered, so it reads as that module's detail instead of
 	// as three more list rows.
-	for _, w := range []string{"│ Practice accuracy: 60%", "│ ⚠️ Weakest:"} {
+	for _, w := range []string{"│ Practice accuracy: 60%", "│ Weakest:"} {
 		if !strings.Contains(view, w) {
 			t.Errorf("the selected module's detail block does not show %q:\n%s", w, view)
 		}
