@@ -2164,7 +2164,15 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		// nothing. The two now agree.
 		m.Screen = ScreenMainMenu
 		m.Cursor = 0
-	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnTools, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
+	case ScreenLearnTools:
+		// The hub's own back goes to the main menu: once a tool page has been
+		// opened, PrevScreen holds the hub itself, so following it looped the hub
+		// into itself and Esc and the Back row both did nothing.
+		m.Screen = ScreenMainMenu
+		m.Cursor = 0
+		m.ViewingTool = ""
+		m.ReferenceTableScroll = 0
+	case ScreenLearnTerminals, ScreenLearnShells, ScreenLearnWM, ScreenLearnNvim, ScreenLearnFont, ScreenLearnPrompts, ScreenLearnTooling, ScreenLearnPlugins, ScreenLearnToolset:
 		m.Screen = m.PrevScreen
 		m.Cursor = 0
 		m.ViewingTool = ""
@@ -3740,7 +3748,7 @@ func (m Model) handleLearnHubKeys(key string) (tea.Model, tea.Cmd) {
 		}
 		selected := options[m.Cursor]
 		if m.learnSeparatorAt(options, m.Cursor) || strings.Contains(selected, "Back") {
-			m.Screen = m.PrevScreen
+			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 			return m, nil
 		}
