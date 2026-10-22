@@ -5442,7 +5442,17 @@ func (m Model) wslTerminalOfferRows(width, rows int) []string {
 }
 
 func (m Model) renderComplete() string {
-	width := contentWidth(m)
+	l := layoutFor(m)
+	hints := []installerHint{hintExit}
+
+	// The screen draws in the reference grammar (completeCardBody, flow_cards.go):
+	// the answers the run recorded as the frame's fact rows, under the summary's own
+	// chip, and the next step under a divider named for it. A frame too narrow or too
+	// short for the card keeps the compact body below, which is the same facts in the
+	// same order.
+	if card, ok := m.completeCardBody(l, hints); ok {
+		return m.frame(m.headerName(), "", centeredBody(card, l), hints)
+	}
 
 	// The screen's name is the frame's header now, so the body opens on the first
 	// block instead of repeating it as a second label row. The block carries the
@@ -5461,29 +5471,14 @@ func (m Model) renderComplete() string {
 	// one sentence ("OS: macOS"), which is the one shape the rest of the program's
 	// fact blocks do not use -- and the mockup's own panels line their labels up
 	// in a column, so a reader compares machines instead of reading six sentences.
-	type summaryFact struct{ label, value string }
-	summary := []summaryFact{
-		{"OS", m.completionChoiceLabel(ScreenOSSelect, m.Choices.OS)},
-		{"Terminal", m.completionChoiceLabel(ScreenTerminalSelect, m.Choices.Terminal)},
-		{"Shell", m.completionChoiceLabel(ScreenShellSelect, m.Choices.Shell)},
-		{"Multiplexer", m.completionChoiceLabel(ScreenWMSelect, m.Choices.WindowMgr)},
-	}
-	if m.Choices.InstallFont {
-		summary = append(summary, summaryFact{"Font", m.fontSummaryValue()})
-	}
-	if m.Choices.InstallNvim {
-		summary = append(summary, summaryFact{"Editor", "Neovim with dotfiles config"})
-	}
+	//
+	// The facts come from completionFacts and the command from
+	// completionShellCommand, so the two shapes of this screen cannot state two
+	// different records.
+	width := contentWidth(m)
 	var rendered []string
-	for _, fact := range summary {
-		rendered = append(rendered, panelFact(fact.label, fact.value, width-panelFrame)...)
-	}
-
-	// Next Step block.
-	shell := m.Choices.Shell
-	shellCmd := shell
-	if shell == "nushell" {
-		shellCmd = "nu"
+	for _, fact := range m.completionFacts() {
+		rendered = append(rendered, panelFact(fact.Label, fact.Value, width-panelFrame)...)
 	}
 
 	// The two blocks are cards, like the main menu: the panel edge gives the
@@ -5496,22 +5491,22 @@ func (m Model) renderComplete() string {
 	dry := dryRun()
 	body := []string{}
 	if dry {
-		body = append(body, WarningStyle.Render("Dry run: no file, package or setting was changed."), "")
+		body = append(body, WarningStyle.Render(completeDryRunNotice), "")
 	}
 	body = append(body, panelBlock(SuccessStyle.Render("✓")+" "+BrandStyle.Render("Summary"), width, rendered)...)
 	body = append(body, "")
 	if dry {
-		body = append(body, panelBlock(BrandStyle.Render("Nothing changed"), width, []string{
-			InfoStyle.Render("This was a rehearsal. Run the installer without DOTFILES_DRY_RUN to apply it."),
+		body = append(body, panelBlock(BrandStyle.Render(completeNothingChangedTitle), width, []string{
+			InfoStyle.Render(completeNothingChangedNote),
 		})...)
 	} else {
-		body = append(body, panelBlock(BrandStyle.Render("Next Step"), width, []string{
-			InfoStyle.Render("To use your new shell now, run:"),
-			HighlightStyle.Render(fmt.Sprintf("exec %s", shellCmd)),
+		body = append(body, panelBlock(BrandStyle.Render(completeNextStepTitle), width, []string{
+			InfoStyle.Render(completeNextStepIntro),
+			HighlightStyle.Render(fmt.Sprintf("exec %s", m.completionShellCommand())),
 		})...)
 	}
 
-	return m.frame(m.headerName(), "", body, []installerHint{hintExit})
+	return m.frame(m.headerName(), "", body, hints)
 }
 
 // completionChoiceLabel is the label the wizard showed for a recorded answer, so
@@ -5530,18 +5525,28 @@ func (m Model) completionChoiceLabel(screen Screen, value string) string {
 }
 
 func (m Model) renderError() string {
-	width := contentWidth(m)
+	l := layoutFor(m)
 	hints := []installerHint{hintRetry, hintQuit}
+
+	// The screen draws in the reference grammar (errorCardBody, flow_cards.go): the
+	// message, the way back under a divider named for it and the freshest log lines
+	// under a divider of their own. A frame too narrow or too short for the card
+	// keeps the compact body below.
+	if card, ok := m.errorCardBody(l, hints); ok {
+		return m.frame(m.headerName(), "", centeredBody(card, l), hints)
+	}
+
+	width := contentWidth(m)
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	// The screen's name is the frame's header now, so the body opens on the failure
 	// block instead of repeating it as a second label row.
-	body := []string{chip("Error")}
+	body := []string{chip(errorCardTitle)}
 
 	// The message is wrapped and capped so a long failure cannot run off the
 	// bottom of the screen; the last row ends with the cut marker.
 	errLines := make([]string, 0, 4)
-	for _, row := range wrapText(m.ErrorMsg, width-2, 4) {
+	for _, row := range wrapText(m.ErrorMsg, width-2, errorMessageRows) {
 		errLines = append(errLines, ErrorStyle.Render(row))
 	}
 	body = append(body, gutteredBlock(errLines)...)
@@ -5550,9 +5555,9 @@ func (m Model) renderError() string {
 	// know what the run already changed and how to put it back, and the log is
 	// context for that rather than a substitute for it. The block is three rows so
 	// it cannot be the reason the log disappears from a short frame.
-	body = append(body, "", chip("Way back"))
+	body = append(body, "", chip(errorWayBackTitle))
 	for _, line := range wayBackAfterAFailure(m.BackupDir) {
-		body = append(body, gutteredBlock(wrapText(line, width-2, 2))...)
+		body = append(body, gutteredBlock(wrapText(line, width-2, errorWayBackRows))...)
 	}
 
 	// Show the freshest log lines for context, as many as the frame leaves rather
@@ -5564,7 +5569,7 @@ func (m Model) renderError() string {
 	if len(m.LogLines) > 0 {
 		logRows := bodyRows - len(body) - 2
 		if logRows >= 2 {
-			body = append(body, "", chip("Recent logs"))
+			body = append(body, "", chip(errorLogsTitle))
 			body = append(body, gutteredBlock(logTail(m.LogLines, logRows, width-2, InfoStyle))...)
 		}
 	}
@@ -5580,8 +5585,17 @@ const backupConfirmFixed = 8
 
 func (m Model) renderBackupConfirm() string {
 	l := layoutFor(m)
-	width := l.Composition
 	hints := []installerHint{hintUp, hintDown, hintChoose, hintBack}
+
+	// The screen draws in the reference grammar (backupConfirmCardBody,
+	// flow_cards.go): the configurations the run would overwrite, the note that says
+	// why the backup exists and the three answers, one card. A frame too narrow or
+	// too short for it keeps the compact body below.
+	if card, ok := m.backupConfirmCardBody(l, hints); ok {
+		return m.frame(m.headerName(), "", centeredBody(card, l), hints)
+	}
+
+	width := l.Composition
 	options := m.GetCurrentOptions()
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(l.Inner, hints))
 
@@ -5594,12 +5608,12 @@ func (m Model) renderBackupConfirm() string {
 
 	body := []string{
 		BrandStyle.Render(m.GetScreenTitle()),
-		MutedStyle.Render("The following configs will be overwritten:"),
+		MutedStyle.Render(backupConfigCaption),
 		"",
 	}
-	body = append(body, listRows(m.ExistingConfigs, "  ! ", configRows, width, WarningStyle)...)
+	body = append(body, listRows(m.ExistingConfigs, "  "+backupConfigMark+" ", configRows, width, WarningStyle)...)
 	body = append(body, "")
-	body = append(body, InfoStyle.Render("Creating a backup allows you to restore later if needed."))
+	body = append(body, InfoStyle.Render(backupConfigNote))
 	body = append(body, "")
 	// The answers are the screen's actions, so they are drawn in the frame's card
 	// like every other menu's rows: the list above is the content and the card is
@@ -5617,8 +5631,24 @@ func (m Model) renderBackupConfirm() string {
 const restoreBackupBodyFixed = 7
 
 func (m Model) renderRestoreBackup() string {
-	width := contentWidth(m)
+	l := layoutFor(m)
 	hints := []installerHint{hintUp, hintDown, hintOpen, hintBack}
+
+	// The screen draws in the reference grammar (restoreHistoryCardBody,
+	// flow_cards.go): the history as the card's rows and the way back under the
+	// card's own rule. A frame too narrow or too short for it keeps the compact body
+	// below.
+	if card, start, end, ok := m.restoreHistoryCardBody(l, hints); ok {
+		// The scroll range is the list's vital sign in the header, so the body does
+		// not hold a scroll row that would move the Back row as the history grows.
+		vital := ""
+		if end-start < len(m.AvailableBackups) {
+			vital = scrollVital("Showing", start+1, end, len(m.AvailableBackups))
+		}
+		return m.frame(m.headerName(), vital, centeredBody(card, l), hints)
+	}
+
+	width := contentWidth(m)
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	// The list is bounded and follows the cursor, so a long history scrolls
@@ -5630,7 +5660,7 @@ func (m Model) renderRestoreBackup() string {
 
 	body := []string{
 		BrandStyle.Render(m.GetScreenTitle()),
-		MutedStyle.Render("Select a backup to restore or delete"),
+		MutedStyle.Render(restoreHistoryCaption),
 		"",
 	}
 
@@ -5651,7 +5681,7 @@ func (m Model) renderRestoreBackup() string {
 	}
 
 	backIdx := len(m.AvailableBackups) + 1
-	back := mainMenuGroup{Lines: []string{m.rowBar("← Back", m.Cursor == backIdx, "")}}
+	back := mainMenuGroup{Lines: []string{m.rowBar(restoreHistoryBack, m.Cursor == backIdx, "")}}
 	body = append(body, panelBlockGrouped("", width, []mainMenuGroup{entries, back})...)
 
 	// The scroll range is the list's vital sign in the header, so the body does
@@ -5675,8 +5705,17 @@ func (m Model) renderRestoreConfirm() string {
 
 	backup := m.AvailableBackups[m.SelectedBackup]
 	l := layoutFor(m)
-	width := l.Composition
 	hints := []installerHint{hintUp, hintDown, hintChoose, hintCancel}
+
+	// The screen draws in the reference grammar (restoreConfirmCardBody,
+	// flow_cards.go): which backup it is as the caption, the files it carries under
+	// the card's own Contents divider, the warning and the three answers. A frame
+	// too narrow or too short for the card keeps the compact body below.
+	if card, ok := m.restoreConfirmCardBody(backup, l, hints); ok {
+		return m.frame(m.headerName(), "", centeredBody(card, l), hints)
+	}
+
+	width := l.Composition
 	options := m.GetCurrentOptions()
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(l.Inner, hints))
 
@@ -5689,16 +5728,17 @@ func (m Model) renderRestoreConfirm() string {
 
 	body := []string{
 		BrandStyle.Render(m.GetScreenTitle()),
-		MutedStyle.Render("Backup from: " + backup.Timestamp.Format("2006-01-02 15:04:05")),
+		MutedStyle.Render(restoreConfirmCaption + backup.Timestamp.Format("2006-01-02 15:04:05")),
 		"",
 	}
 	// The contents are one card with its own title on the border, and the answers
 	// are the card under it: the screen reads as what would change and then what
 	// to do about it, and the card carries the block's edge instead of a chip and a
 	// gutter spending three rows to say the same thing.
-	body = append(body, panelBlock(BrandStyle.Render("Contents"), width, listRows(backup.Files, "• ", fileRows, width-panelFrame, InfoStyle))...)
+	body = append(body, panelBlock(BrandStyle.Render(restoreConfirmContentsTitle), width,
+		listRows(backup.Files, restoreFileMark+" ", fileRows, width-panelFrame, InfoStyle))...)
 	body = append(body, "")
-	body = append(body, WarningStyle.Render("Restoring will overwrite your current configs!"))
+	body = append(body, WarningStyle.Render(restoreConfirmWarning))
 	body = append(body, "")
 	body = append(body, panelBlock("", width, m.menuRows(options, m.Cursor))...)
 

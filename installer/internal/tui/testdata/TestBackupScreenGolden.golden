@@ -3,20 +3,20 @@
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
                                                                                 
                                                                                 
-  Existing configurations                                                       
-  The following configs will be overwritten:                                    
                                                                                 
-    ! .config/nvim                                                              
-    ! .zshrc                                                                    
-    ! .tmux.conf                                                                
-                                                                                
-  Creating a backup allows you to restore later if needed.                      
-                                                                                
-  ╭──────────────────────────────────────────────────────────────────────────╮  
+  ╭─ Existing configurations ──── The following configs will be overwritten: ╮  
+  │──────────────────────────────────────────────────────────────────────────│  
+  │ ! .config/nvim                                                           │  
+  │ ! .zshrc                                                                 │  
+  │ ! .tmux.conf                                                             │  
+  ├──────────────────────────────────────────────────────────────────────────┤  
+  │ Creating a backup allows you to restore later if needed.                 │  
+  ├──────────────────────────────────────────────────────────────────────────┤  
   │ ▸ Install with Backup (recommended)                                      │  
   │   Install without Backup                                                 │  
   │   Cancel                                                                 │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
                                                                                 
                                                                                 
                                                                                 

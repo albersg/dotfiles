@@ -1259,3 +1259,59 @@ panel's. Goldens: `TestLearnHubGolden`/`TestLearnHubWideGolden`,
 (`capture_redesign_test.go`) lists the Vim hub, the prompt page, the keymap menus,
 the long-key Herdr table and the LazyVim guide and topic beside the Learn pages it
 already had.
+
+L25. The flow's four screens -- the backup question, the two restore screens, the
+completion and the failure -- moved onto the same shared grammar, and they were the
+last pages drawing the older panel vocabulary: a branded label row, a guttered block
+of prose and a separate bordered box for the answers, which is three objects where
+every other screen now draws one. They are `flow_cards.go`, through `card`,
+`cardGroups`, `cardRowLines`, `iconFactLines` and `questionCard` -- the same
+functions the six questions, the review, the reference pages and the section screens
+call, not a second vocabulary.
+
+- **The backup question** is one card: the screen's own title as the chip, its own
+  sentence ("The following configs will be overwritten:") as the caption -- inside
+  the card where the border row has no room for it, which is what 60 columns does --
+  `m.ExistingConfigs` as rows with the mark the compact list always drew, the note
+  that says why the backup exists under the card's rule, and the three answers under
+  the next. A machine with more configurations than the rows allows keeps the note
+  that counts the ones it could not show.
+- **The restore history** is one card too: the backups with their timestamp and file
+  count as rows, the same window `listWindow` always gave the list, and the same
+  `← Back` behind the card's divider. The scroll range stays the header's vital sign
+  and not a body row, so the way back cannot move as the history grows.
+- **The confirmation** names which backup it is in the caption (the backup's own
+  timestamp), the files it carries under the card's `Contents` divider, the warning
+  under the next and the three answers under the last. `Contents` is the word the
+  contents card already carried, so the divider is named and no word is new.
+- **The completion** states the same recorded answers as the card's fact rows, with
+  the glyph the setup table draws for the same decision, and the next step under the
+  card's own rule -- or, in a dry run, what the run did not change, with the same
+  rehearsal notice as the caption. `completionFacts` and `completionShellCommand`
+  are one source for both shapes, so the compact body and the card cannot state two
+  different records.
+- **The failure** is the message, the way back under a divider named for it and the
+  freshest log lines under a divider of their own. The message keeps its cap and the
+  way back is charged for before the log, which is the order the screen always drew
+  them in.
+
+Nothing moved. The answers are `GetCurrentOptions()` in the key handler's order with
+`m.Cursor`, the configurations, backup lists, file lists and log lines are the
+model's own, the completion's values still come from `completionChoiceLabel` and
+`fontSummaryValue`, and the failure's sentences are still `wayBackAfterAFailure`'s.
+The palette is the applied theme's roles. Each renderer keeps the compact body it
+always had under the frames the card cannot hold -- the gate is a content width and a
+row budget and nothing about the cursor -- so the 80x24 floor and the two-column
+frames both keep the shape they had.
+
+Guards. `flow_cards_test.go`: every one of the five renderers sets its own chip into
+the card's top border, draws the rule under it and every answer inside the card with
+the cursor's row marked; every fact the screens state is still on them, at the floor
+and at 140x44, in the screen's own words; and the gate accepts the 80x24 floor and
+refuses a 30-column frame, where the compact body still renders. The matrix guard
+(`TestEveryScreenFitsEveryTerminalSize`) passes for all 96 screens at all twelve
+terminals, so the taller card does not overflow the 60x20 floor. Goldens regenerated:
+`TestBackupScreenGolden`, `TestCompleteScreenGolden`, `TestCompleteTruecolorGolden`,
+`TestCompleteCelebrationGolden` and `TestErrorScreenGolden`. The two restore screens
+have no golden; they are held by the shape and data guards and by the E2E reaches
+that already read their final frames.
