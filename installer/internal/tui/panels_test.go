@@ -929,25 +929,57 @@ func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
 	}
 }
 
-// TestSinglePanelColumnIsTheChipItAlwaysShowed pins the no-change case: a screen
-// that offers one panel renders the same chip, rule and rows through the
-// registry as it did through the panel's own function, so the machinery cannot
-// have moved a single byte of the two panels that already shipped.
-func TestSinglePanelColumnIsTheChipItAlwaysShowed(t *testing.T) {
+// TestSinglePanelColumnIsThePanelsOwnRows pins the no-change case for the facts: a
+// screen that offers one panel renders that panel's own rows through the registry,
+// so the machinery cannot have moved a fact of the two panels that already
+// shipped. The column is drawn in the reference grammar's card, so its chip is a
+// filled chip on the card's border rather than a bar over the rows; the rows
+// inside the card are the panel's own, row for row.
+func TestSinglePanelColumnIsThePanelsOwnRows(t *testing.T) {
 	l := narrowPanelLayout()
 
 	machine := Model{SystemInfo: goldenSystemInfo()}
-	if got, want := machine.panelColumn([]panel{machinePanel()}, l, 40), machine.welcomePanel(l, 40); !equalRows(got, want) {
+	if got, want := cardBodyRows(machine.panelColumn([]panel{machinePanel()}, l, 40)), machine.welcomePanel(l, 40)[panelBodyChromeRows:]; !equalRows(got, want) {
 		t.Errorf("the machine column through the registry differs from its own panel:\nregistry:\n%s\npanel:\n%s",
 			panelText(got), panelText(want))
 	}
 
 	steps := []InstallStep{{Name: "Clone Repository"}, {Name: "Install Dependencies"}}
 	plan := Model{Steps: steps, ExistingConfigs: []string{"nvim: /home/testuser/.config/nvim"}}
-	if got, want := plan.panelColumn([]panel{planPanel()}, l, 40), plan.mainMenuPanel(l, 40); !equalRows(got, want) {
+	if got, want := cardBodyRows(plan.panelColumn([]panel{planPanel()}, l, 40)), plan.mainMenuPanel(l, 40)[panelBodyChromeRows:]; !equalRows(got, want) {
 		t.Errorf("the plan column through the registry differs from its own panel:\nregistry:\n%s\npanel:\n%s",
 			panelText(got), panelText(want))
 	}
+}
+
+// panelBodyChromeRows is what the chip-and-rule panel spends before its facts: the
+// chip's row and the rule under it.
+const panelBodyChromeRows = 2
+
+// cardBodyRows is the rows a card draws inside its border: the top border, the
+// rule under the chip and the closing border are chrome, and what is compared is
+// the body. A block that is not a card is returned whole.
+func cardBodyRows(rows []string) []string {
+	if len(rows) < cardChromeRows+1 {
+		return rows
+	}
+	plain := func(row string) string { return ansiEscape.ReplaceAllString(row, "") }
+	if !strings.HasPrefix(plain(rows[0]), "╭") || !strings.HasPrefix(plain(rows[len(rows)-1]), "╰") {
+		return rows
+	}
+	out := make([]string, 0, len(rows)-cardChromeRows)
+	for _, row := range rows[cardChromeRows-1 : len(rows)-1] {
+		line := plain(row)
+		line = strings.TrimPrefix(line, "│")
+		line = strings.TrimSuffix(line, "│")
+		out = append(out, strings.TrimSpace(line))
+	}
+	// The card reserves the rows its facts can need, so it may end in blank rows;
+	// they are the reservation and not a fact.
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 // equalRows compares two rendered blocks by their visible words, so a stylistic
@@ -956,10 +988,10 @@ func equalRows(a, b []string) bool {
 	return panelText(a) == panelText(b)
 }
 
-// TestTabRowNamesThePanelsAndMarksTheActiveOne pins the tab row: every panel the
-// screen offers is named on the one row, the active one in brand chrome and the
-// rest in the dim tone, separated by a dim separator. Switching the active index
-// moves the chrome and the facts with it.
+// TestTabRowNamesThePanelsAndMarksTheActiveOne pins the naming row: every panel
+// the screen offers is named on the one row, the active one in the chip's chrome
+// and the rest in the dim tone, separated by a dim separator. Switching the active
+// index moves the chrome and the facts with it.
 func TestTabRowNamesThePanelsAndMarksTheActiveOne(t *testing.T) {
 	l := narrowPanelLayout()
 	panels := []panel{
@@ -970,26 +1002,29 @@ func TestTabRowNamesThePanelsAndMarksTheActiveOne(t *testing.T) {
 	first := Model{}.panelColumn(panels, l, 40)
 	rows := strings.Split(panelText(first), "\n")
 	if len(rows) < 2 {
-		t.Fatalf("the tab row is missing:\n%s", panelText(first))
+		t.Fatalf("the naming row is missing:\n%s", panelText(first))
 	}
+	// The column is the grammar's card, so the names ride the card's top border: the
+	// active panel is the filled chip set into it, and the panels it is not are the
+	// muted caption at its right.
 	if !strings.Contains(rows[0], "Machine") || !strings.Contains(rows[0], "Plan") {
-		t.Errorf("the tab row does not name both panels: %q", rows[0])
+		t.Errorf("the row does not name both panels: %q", rows[0])
 	}
-	if !strings.Contains(first[0], BrandStyle.Render("Machine")) {
-		t.Errorf("the active panel is not in brand chrome: %q", first[0])
+	if !strings.Contains(first[0], CardChipStyle.Render("Machine")) {
+		t.Errorf("the active panel is not in the chip's chrome: %q", first[0])
 	}
 	if !strings.Contains(first[0], MutedStyle.Render("Plan")) {
 		t.Errorf("the inactive panel is not dim: %q", first[0])
 	}
 	if !strings.Contains(first[0], MutedStyle.Render(panelTabSeparator)) {
-		t.Errorf("the tab row has no dim separator: %q", first[0])
+		t.Errorf("the caption has no dim separator: %q", first[0])
 	}
 	if !strings.Contains(panelText(first), "OS  Linux") {
 		t.Errorf("the first panel's facts are not shown:\n%s", panelText(first))
 	}
 
 	second := Model{PanelIndex: 1}.panelColumn(panels, l, 40)
-	if !strings.Contains(second[0], BrandStyle.Render("Plan")) {
+	if !strings.Contains(second[0], CardChipStyle.Render("Plan")) {
 		t.Errorf("after a Tab the plan is not the active panel: %q", second[0])
 	}
 	if !strings.Contains(second[0], MutedStyle.Render("Machine")) {

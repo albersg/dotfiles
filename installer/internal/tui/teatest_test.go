@@ -1254,6 +1254,19 @@ func TestDiskCleanerGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Development caches"))
 }
 
+// TestDiskCleanerWideGolden pins the disk cleaner in the reference grammar: the
+// findings' card at the left with the way back under its rule, and the prose the
+// screen is made of in the card beside it. The framing is the floor's own
+// (TestDiskCleanerGolden); what changes is the grammar the wide frame can hold.
+func TestDiskCleanerWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := diskCleanerFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Development caches"))
+}
+
 // TestTerminalCapabilitiesGolden pins the capability report: every answer with
 // the source it came from, the one answer that is unknown with the manual check
 // that replaces it, and the read-only promise. The answers are forced rather than
@@ -1265,6 +1278,18 @@ func TestTerminalCapabilitiesGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
+}
+
+// TestTerminalCapabilitiesWideGolden pins the capability report in the report
+// shape: a screen whose only row is the way back has no list to walk, so its prose
+// is one card across the composition with the way back under the card's own rule.
+func TestTerminalCapabilitiesWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := terminalCapabilitiesFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Terminal capabilities"))
 }
 
 // TestNetworkDiagnosticsGolden pins the diagnosis screen: the verdict naming the
@@ -1279,6 +1304,18 @@ func TestNetworkDiagnosticsGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Network diagnostics"))
+}
+
+// TestNetworkDiagnosticsWideGolden pins the diagnosis in the reference grammar:
+// the checks in a card with their own status marks in the gutter, and the step
+// under the cursor with its evidence and its cause in the card beside it.
+func TestNetworkDiagnosticsWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := networkDiagnosticsFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Network diagnostics"))
 }
 
 // TestPortManagerGolden pins the port manager: the scope line, the filter and
@@ -1321,6 +1358,20 @@ func TestDoctorGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Development environment"))
+}
+
+// TestDoctorWideGolden pins the doctor in the reference grammar: the findings in
+// a card whose chip is the screen's own title and whose rows carry their state in
+// the gutter, the actions and the way back under its rule, and the finding under
+// the cursor with its evidence in the card beside it. The 80x24 frame is pinned
+// by TestDoctorGolden and is unchanged.
+func TestDoctorWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := doctorFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Development environment"))
 }
 
 // TestDoctorFixGolden pins the confirmation screen: the before/after of the one

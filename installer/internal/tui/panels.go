@@ -657,23 +657,43 @@ func nextPanelIndex(panels []panel, index int) (int, bool) {
 	return (index + 1) % len(panels), true
 }
 
-// panelColumn renders a screen's right column: the header that names the panels
-// the screen offers, the rule under it, and the active panel's facts clipped to
-// the rows the frame leaves.
+// panelColumn renders a screen's right column. On a frame that holds it the
+// column is the reference grammar's card: the active panel's name is the chip set
+// into the card's top border, the panels the frame is not showing are the muted
+// caption at the right, the rule under the pair opens the facts and the facts are
+// inside the card.
 //
-// A screen that offers exactly one panel keeps the single chip it has always
-// shown, through the same panelBody the two panels used before the registry
-// existed. A screen that offers more than one starts the column with a tab row
-// naming them, the active one in brand chrome and the rest dim, separated by a
-// dim separator, so the reader can see which panel is on and that there is
-// another. The facts are clipped out loud either way: a panel with more rows than
-// the frame leaves keeps the ones that fit and says how many it dropped.
+// A frame too short for the card -- and the narrow terminal's single chip, which
+// has no column to put a border around -- keeps the shape the registry shipped
+// with: the tab row naming the panels, the rule under it and the facts, clipped
+// out loud. Either way the facts are clipped rather than dropped: a panel with
+// more rows than the frame leaves keeps the ones that fit and says how many it
+// dropped.
 func (m Model) panelColumn(panels []panel, l layout, budget int) []string {
 	if len(panels) == 0 {
 		return nil
 	}
 	active := m.activePanelIndex(panels)
 	p := panels[active]
+
+	if budget >= cardChromeRows+1 && l.Right >= panelCardMinWidth {
+		// The facts are measured against the card's own content, so a value that
+		// fits the column is not cut by the border drawn around it.
+		inner := l
+		inner.Right = cardContentWidth(l.Right)
+		room := budget - cardChromeRows
+		rows := clipPanelRows(p.Facts(m, inner), room)
+		// A panel's facts follow the cursor, so the card is drawn at the tallest its
+		// facts get over every row the cursor can be on -- the same rule the setup
+		// table's band follows. A card measured from the current row would grow and
+		// shrink its bottom border while the user walks the list, which is the one
+		// thing the frame's stability rule does not allow.
+		if height := m.panelFactsHeight(p, inner, room); height > len(rows) {
+			rows = append(rows, make([]string, height-len(rows))...)
+		}
+		return card(p.Title, panelCaption(panels, active), l.Right, rows)
+	}
+
 	if len(panels) == 1 {
 		return panelBody(p.Title, p.Facts(m, l), l.Right, budget)
 	}
@@ -691,6 +711,54 @@ func (m Model) panelColumn(panels []panel, l layout, budget int) []string {
 	kept := room - 1
 	out := append(head, rows[:kept]...)
 	return append(out, MutedStyle.Render(fmt.Sprintf("… and %d more", len(rows)-kept)))
+}
+
+// panelCardMinWidth is the narrowest column the card is drawn in: the border, the
+// padding and enough content for a fact's label and its value.
+const panelCardMinWidth = 24
+
+// panelFactsHeight is the tallest the panel's facts get over every row the cursor
+// can be on, within the room the card has. It is a measurement of the same pure
+// function the card draws with -- a copy of the model carries each cursor, and
+// nothing on the model is written -- so the reserved height and the drawn rows
+// cannot disagree, and the card cannot change height as the cursor moves.
+func (m Model) panelFactsHeight(p panel, inner layout, room int) int {
+	height := min(len(p.Facts(m, inner)), room)
+	for cursor := 0; cursor < len(m.GetCurrentOptions()); cursor++ {
+		probe := m
+		probe.Cursor = cursor
+		height = max(height, min(len(p.Facts(probe, inner)), room))
+	}
+	return height
+}
+
+// panelCaption is the card's caption: the names of the panels the frame is not
+// showing, in the order Tab reaches them. It is what the tab row said before the
+// column became a card, so a reader still learns that the column holds more than
+// what is on it, and the active panel's name is the chip rather than a word on a
+// row of its own.
+func panelCaption(panels []panel, active int) string {
+	names := make([]string, 0, len(panels))
+	for i, p := range panels {
+		if i == active {
+			continue
+		}
+		names = append(names, p.Title)
+	}
+	return strings.Join(names, panelTabSeparator)
+}
+
+// clipPanelRows keeps the rows that fit and says how many it could not, the same
+// rule the panel body and the section bands follow.
+func clipPanelRows(rows []string, room int) []string {
+	if room < 1 {
+		return nil
+	}
+	if len(rows) <= room {
+		return rows
+	}
+	kept := max(1, room-1)
+	return append(rows[:kept:kept], MutedStyle.Render(fmt.Sprintf("… and %d more", len(rows)-kept)))
 }
 
 // panelTabSeparator is the middle dot the panel layer separates two names with:

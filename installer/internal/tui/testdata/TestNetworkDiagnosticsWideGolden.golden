@@ -1,0 +1,50 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  ╭─ Network diagnostics ──────────────────────────────────────────────╮  ╭─ Details ────────────────────────────────────────────────────────────────────────╮  
+  │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
+  │ ▸ [r] Run the connectivity checks                                  │  │ the transport did not answer: Connect to api.github.com:443.                     │  
+  │ → Check a host, URL or port…                                       │  │ 6 checks: 3 ok, 0 noted, 1 failed, 1 undetermined, 1 skipped in 1.42 s.          │  
+  │ ────────────────────────────────────────────────────────────────── │  │ Destination: https://api.github.com/ (the host this installer already contacts   │  
+  │   [ok] local — Interfaces and addresses                            │  │ for its own update check).                                                       │  
+  │   [ok] local — Default route                                       │  │ Where it stopped: the transport — Connect to api.github.com:443.                 │  
+  │   [ok] DNS — Resolve api.github.com                                │  │ Cause: nothing is listening on that port.                                        │  
+  │   [failed] transport — Connect to api.github.com:443               │  │ Next check: check the port the service publishes.                                │  
+  │   [skipped] certificate — TLS handshake                            │  │ By hand: nc -vz api.github.com 443                                               │  
+  │   [unknown] application — HTTP request                             │  │ Move the cursor onto a step to read everything that step measured; the report    │  
+  │ ────────────────────────────────────────────────────────────────── │  │ text can be reviewed and saved from the rows below.                              │  
+  │   [t] Include a traceroute (needs the system's own tool) — off     │  │                                                                                  │  
+  │ → Review the report as text                                        │  │ The run finished. Move the cursor onto a step to read what it measured.          │  
+  │ ────────────────────────────────────────────────────────────────── │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  │ ← Back                                                             │                                                                                        
+  ╰────────────────────────────────────────────────────────────────────╯                                                                                        
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                      ↑/k up • ↓/j down • [Enter] open • [r] run • [t] traceroute • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

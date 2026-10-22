@@ -2130,6 +2130,14 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	// body, and the detail gets the column the wide frame has going spare.
 	l := layoutFor(m)
 	panels := m.panelsFor()
+	// On a frame that holds two columns of cards, the doctor and the section's own
+	// reports draw in the reference's grammar instead of the bare bands below: the
+	// list in a card, the screen's prose in the card beside it. The floor and every
+	// frame too short for both keep the bands, and the gate reads only the frame, so
+	// the screen cannot change shape while the user walks it.
+	if m.sectionWide(l, hints) {
+		return m.renderSectionWide(l, paragraphs, screenNotice, hints)
+	}
 	// A section screen whose right column comes from the panel registry lets the
 	// frame compose it; only the screens with no registered panel draw their detail
 	// through the section's own pane. The utilities board is registered, so its body
