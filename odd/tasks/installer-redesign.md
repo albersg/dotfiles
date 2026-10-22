@@ -1166,3 +1166,29 @@ action row has none; keeping the last window needs a field the model does not ha
 At the 80x24 floor the review's card shows three or four of a sixteen-unit plan
 with "↓ N more below", which is the grammar's two-line row cost; the compact
 one-line fallback is kept for frames too narrow for the card.
+
+**The multiplexer and the editor join the reference card.** The last two wizard
+questions still drew the shared menu card with one-line answers. They are the
+question card now (`wm_select_view.go`, `nvim_select_view.go`), through
+`questionCard`/`questionCardBody`/`questionCardGroups` like the four before them:
+the screen's own title as the chip, its own description as the caption -- inside the
+card where the border row has no room, which is what the editor question does in the
+two-column frame -- the rule under the pair, and every answer as an
+icon/title/subtitle/chevron row with the cursor's row filled and marked. The option
+list's separator is the card's own divider, so the shortcut rows sit in the group the
+card sets off. Nothing the screen decides changed: the answers are
+`GetCurrentOptions()` in its order, the labels, the recorded choices, the keys, Enter
+and Esc are untouched, and the footer is the same legend. The subtitles come from the
+tool pages the installer already ships (`GetWMInfo`, `GetNvimInfo`); `None` and `No`
+say only what pressing them does. The multiplexer list stays the host's -- a Termux
+host draws three answers and no Herdr -- and the compact fallback is kept for a frame
+too small for the card. This closes the follow-up above about the pickers' one-line
+answers.
+
+Guards. `wm_select_view_test.go` and `nvim_select_view_test.go`: the grammar's shape
+at 80x24 and 160x50, the answers in the model's order with the divider and the one
+marker, a one-cell glyph and a <=50-column subtitle for every answer, no Enter
+advertised with no row under the cursor, the same top border at every cursor
+position, the compact fallback at 36x24 and 80x12, and -- for the multiplexer -- the
+Termux host's three answers and no fourth. Goldens: `TestWMSelectGolden` and
+`TestWMSelectWideGolden`, `TestNvimSelectGolden` and `TestNvimSelectWideGolden`.

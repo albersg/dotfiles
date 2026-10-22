@@ -879,6 +879,81 @@ func TestShellSelectWideGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Your Shell"))
 }
 
+// TestWMSelectGolden pins the multiplexer question in the reference grammar: the
+// screen's own title as the card's chip, its description as the caption, the rule
+// under the pair and every answer as an icon/title/subtitle/chevron row, with the
+// shortcut row behind the card's own divider. The answers, their order and the
+// footer's keys are the screen's, unchanged. The cursor is where the screen really
+// opens: the multiplexer the run recorded.
+func TestWMSelectGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.WindowMgr = "tmux"
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenWMSelect
+	m.Cursor = m.questionValueIndex(ScreenWMSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Choose Multiplexer"))
+}
+
+// TestWMSelectWideGolden pins the same question at the two-column frame: the card
+// with its chip and caption, the four two-line answers, the divider before the
+// shortcut row, and the plan panel beside it.
+func TestWMSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.WindowMgr = "tmux"
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenWMSelect
+	m.Cursor = m.questionValueIndex(ScreenWMSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Multiplexer"))
+}
+
+// TestNvimSelectGolden pins the editor question in the reference grammar: the
+// screen's own title as the card's chip, its description as the caption, the rule
+// under the pair and every answer as an icon/title/subtitle/chevron row, with the
+// three shortcut rows behind the card's own divider. The answers, their order and
+// the footer's keys are the screen's, unchanged. The cursor is where the screen
+// really opens: the recorded answer, the row that installs the editor.
+func TestNvimSelectGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.InstallNvim = true
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenNvimSelect
+	m.Cursor = m.questionValueIndex(ScreenNvimSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Neovim Configuration"))
+}
+
+// TestNvimSelectWideGolden pins the same question at the two-column frame: the card
+// with its chip and the caption inside it -- the left column leaves the border row
+// too little room for the description beside the chip -- the two two-line answers,
+// the divider before the three shortcut rows, and the plan panel beside it.
+func TestNvimSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.InstallNvim = true
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenNvimSelect
+	m.Cursor = m.questionValueIndex(ScreenNvimSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Neovim Configuration"))
+}
+
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
 func TestNavigationFlowE2E(t *testing.T) {
 	m := NewModel()

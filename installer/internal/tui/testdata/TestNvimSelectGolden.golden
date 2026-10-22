@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Setup                                            ▓▓▓▓▓░░░░░ 1/2 · dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                
+                                                                                
+  ╭─ Neovim Configuration ──── Includes LSP, TreeSitter, and dotfiles config ╮  
+  │──────────────────────────────────────────────────────────────────────────│  
+  │ ▸ Yes, install Neovim with config                                      › │  
+  │   LSP, TreeSitter and the dotfiles config                                │  
+  │  No, skip Neovim                                                      › │  
+  │   Leave Neovim on this machine alone                                     │  
+  ├──────────────────────────────────────────────────────────────────────────┤  
+  │  Learn about Neovim                                                   › │  
+  │   The editor, LazyVim and this config                                    │  
+  │  View Keymaps                                                         › │  
+  │   The keys this editor config binds                                      │  
+  │  LazyVim Guide                                                        › │  
+  │   How this LazyVim setup works                                           │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+                                                                                
+                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────  
+                               ↑/k up • ↓/j down • [Enter] choose • [Esc] back  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l
