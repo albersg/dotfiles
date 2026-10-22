@@ -301,6 +301,20 @@ func (m Model) statusBar() (string, lipgloss.Style) {
 	return statusReady, SuccessStyle
 }
 
+// footerCenterStatus is the optional middle of the reference's footer: the one
+// line a screen has to say about what it is doing. It is empty everywhere the
+// frame has nothing to add, so the rule runs whole and no screen grows a row for
+// a sentence it did not need.
+func (m Model) footerCenterStatus() string {
+	switch m.Screen {
+	case ScreenUpdateCenter:
+		return m.updateCenterFooterStatus()
+	case ScreenShellAudit:
+		return m.shellAuditFooterStatus()
+	}
+	return ""
+}
+
 // statusBarBlock draws the state block itself: the dot in the state's tone and
 // the word in body ink, so the word keeps the 4.5:1 floor the tone may not.
 func statusBarBlock(word string, dot lipgloss.Style) string {
@@ -320,11 +334,33 @@ func statusBarBlock(word string, dot lipgloss.Style) string {
 func (m Model) footerStatusRow(inner int) string {
 	word, dot := m.statusBar()
 	block := statusBarBlock(word, dot)
+	center := m.footerCenterStatus()
 	room := inner - lipgloss.Width(block) - 1
 	if room < 1 {
 		return block
 	}
-	return block + " " + rule(room)
+	if center == "" {
+		return block + " " + rule(room)
+	}
+	// The middle costs two spaces around the text, so the rule and the text share
+	// what is left: one column more than the room and the footer would clip the
+	// hints off the frame's right edge.
+	textRoom := max(1, room-2)
+	if lipgloss.Width(center) > textRoom-2 {
+		center = truncate(center, max(1, textRoom-2))
+	}
+	left := (textRoom - lipgloss.Width(center)) / 2
+	if left < 1 {
+		left = 1
+	}
+	right := textRoom - left - lipgloss.Width(center)
+	if right < 1 {
+		right = 1
+	}
+	if left+lipgloss.Width(center)+right < textRoom {
+		right += textRoom - (left + lipgloss.Width(center) + right)
+	}
+	return block + " " + rule(left) + " " + MutedStyle.Render(center) + " " + rule(right)
 }
 
 // statusBarReserve is the columns this frame's status block takes when it shares
@@ -1303,6 +1339,42 @@ func (m Model) menuRowAt(options []string, i, cursor int) string {
 	return m.rowBar(opt, i == cursor, "")
 }
 
+// wrappedSectionRows draws a section's entries with their long facts wrapped onto
+// a second line instead of cut. It is used only where the frame has the rows for
+// the taller list: the caller measures the result against the list band and keeps
+// the one-line rows when it does not fit. Separators remain rules; a selected
+// entry's first line is the filled bar and its continuation stays on the fill,
+// so the selection reads as one object however many lines it spends.
+func (m Model) wrappedSectionRows(options []string, cursor, width int) ([]string, bool) {
+	rows := make([]string, 0, len(options))
+	for i, option := range options {
+		if strings.HasPrefix(option, menuSeparatorPrefix) {
+			rows = append(rows, rule(width))
+			continue
+		}
+		textWidth := max(1, width-2)
+		lines := wrapText(option, textWidth, 2)
+		if len(lines) <= 1 {
+			rows = append(rows, m.rowBarWidth(option, i == cursor, "", width))
+			continue
+		}
+		for j, line := range lines {
+			padded := padRight(truncate(line, textWidth), textWidth)
+			switch {
+			case i == cursor && j == 0:
+				rows = append(rows, RowBarMarkerStyle.Render("▸ ")+RowBarStyle.Render(padded))
+			case i == cursor:
+				rows = append(rows, OnFillMutedStyle.Render("  "+padded))
+			case j == 0:
+				rows = append(rows, InkStyle.Render("  "+padded))
+			default:
+				rows = append(rows, MutedStyle.Render("  "+padded))
+			}
+		}
+	}
+	return rows, true
+}
+
 // listRows renders at most rows entries of a list, followed by a note naming the
 // entries the frame could not show, so the note is part of the row budget and a
 // long list degrades out loud instead of running off the bottom of the screen.
@@ -1631,28 +1703,26 @@ func replaceLastLine(s, line string) string {
 // line sits.
 const welcomeFullLockupHeight = 32
 
-// emblemRampStyles is the vertical ramp the splash emblem is drawn in: brand
-// blue at the top, the softer secondary through the middle and the accent gold
-// at the tip. Every stop is an existing palette entry, so the ramp is a use of
-// the palette rather than a change to it.
-var emblemRampStyles = []lipgloss.Style{
-	lipgloss.NewStyle().Foreground(Primary).Bold(true),
-	lipgloss.NewStyle().Foreground(Secondary).Bold(true),
-	lipgloss.NewStyle().Foreground(Accent).Bold(true),
-}
-
 // renderEmblem draws the emblem one row at a time with a vertical ramp through
 // the palette, so it is no longer one flat colour, and returns one string per
-// row so the frame can count and center it.
+// row so the frame can count and center it. The ramp is a rebuilt style rather
+// than a build of its own: the emblem is the first thing a themed run shows, so
+// it has to wear the palette applyUIColors last put on the chrome.
 func renderEmblem(art string) []string {
 	rows := strings.Split(strings.Trim(art, "\n"), "\n")
 	out := make([]string, len(rows))
 	for i, row := range rows {
-		idx := i * len(emblemRampStyles) / len(rows)
-		if idx >= len(emblemRampStyles) {
-			idx = len(emblemRampStyles) - 1
+		if len(EmblemRampStyles) == 0 {
+			// A chrome with no ramp built yet draws the lockup plain rather than
+			// indexing a stop that is not there.
+			out[i] = row
+			continue
 		}
-		out[i] = emblemRampStyles[idx].Render(row)
+		idx := i * len(EmblemRampStyles) / len(rows)
+		if idx >= len(EmblemRampStyles) {
+			idx = len(EmblemRampStyles) - 1
+		}
+		out[i] = EmblemRampStyles[idx].Render(row)
 	}
 	return out
 }
@@ -1712,6 +1782,14 @@ func (m Model) greeting() string {
 func (m Model) renderWelcome() string {
 	l := layoutFor(m)
 	inner := contentWidth(m)
+
+	// The reference's two-column home, where the frame holds it: the lockup, the
+	// cards and the call to action at the left, the machine, the plan and the
+	// newest backup at the right. The compact dashboard below is the floor's
+	// shape, where both columns cannot keep their facts.
+	if m.homeWide(l) {
+		return m.renderHomeWide(l)
+	}
 
 	// The welcome screen is the one that asks "where am I", so it offers the
 	// machine panel. The frame takes it only where there is room for two columns,
@@ -1838,6 +1916,13 @@ func (m Model) renderUtilities() string {
 	// with the desktop they switch, and an action that appears once must not take
 	// its row from the body -- taking it from the body is what moved the list.
 	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, frameHints))
+
+	// The reference's two-column section where the frame holds it: the card of
+	// jobs at the left and the theme, machine, resources and recommended actions
+	// at the right. The compact card below is the floor's shape.
+	if m.utilitiesWide(l, budget) {
+		return m.renderUtilitiesWide(l, budget)
+	}
 
 	// The shape is decided once from the frame's rows and the width, and the body is
 	// composed against it: the mockup's two-line rows where they fit, the same rows
@@ -1999,8 +2084,17 @@ func (m Model) renderShellAudit() string {
 	if m.ShellAudit.Measuring {
 		back = hintShellAuditStop
 	}
-	return m.renderThemeScreen(m.shellAuditDescription(), m.shellAuditNotice(),
-		[]installerHint{hintUp, hintDown, hintShellAuditMeasure, hintShellAuditPlan, hintShellAuditExtras, back})
+	hints := []installerHint{hintUp, hintDown, hintShellAuditMeasure, hintShellAuditPlan, hintShellAuditExtras, back}
+
+	// The reference's two-column screen where the frame holds it: the clock art,
+	// the numbered explanation, the action row, the results and recent runs, and
+	// the methodology. The section renderer below is the 80x24 floor's shape.
+	l := layoutFor(m)
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, hints))
+	if m.shellAuditWide(l, budget) {
+		return m.renderShellAuditWide(l, budget)
+	}
+	return m.renderThemeScreen(m.shellAuditDescription(), m.shellAuditNotice(), hints)
 }
 
 // renderThemePicker draws the dotfiles theme list: the mockup's grid of theme
@@ -2036,6 +2130,14 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	// body, and the detail gets the column the wide frame has going spare.
 	l := layoutFor(m)
 	panels := m.panelsFor()
+	// On a frame that holds two columns of cards, the doctor and the section's own
+	// reports draw in the reference's grammar instead of the bare bands below: the
+	// list in a card, the screen's prose in the card beside it. The floor and every
+	// frame too short for both keep the bands, and the gate reads only the frame, so
+	// the screen cannot change shape while the user walks it.
+	if m.sectionWide(l, hints) {
+		return m.renderSectionWide(l, paragraphs, screenNotice, hints)
+	}
 	// A section screen whose right column comes from the panel registry lets the
 	// frame compose it; only the screens with no registered panel draw their detail
 	// through the section's own pane. The utilities board is registered, so its body
@@ -2062,6 +2164,21 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	tail := pinnedTailLen(options)
 	pinned := menu[len(menu)-tail:]
 	entries := menu[:len(menu)-tail]
+	entryTotal := len(options) - tail
+
+	// The doctor and the update center carry the longest single facts in the
+	// program, and their rows used to be cut mid-word. Where the frame has the rows,
+	// the same entries are wrapped onto a second line instead; where it does not,
+	// the one-line rows are kept, so the wrap never costs a row the list needs.
+	wrappedEntries := false
+	if m.Screen == ScreenDoctor || m.Screen == ScreenUpdateCenter {
+		if wrapped, ok := m.wrappedSectionRows(options[:entryTotal], m.Cursor, width); ok {
+			if len(wrapped) <= max(1, bands.List-len(pinned)) {
+				entries = wrapped
+				wrappedEntries = true
+			}
+		}
+	}
 
 	// The live preview: while the cursor is on a theme row, the screen shows that
 	// theme's real palette. It writes nothing; the values come from the same
@@ -2083,13 +2200,12 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 
 	var body []string
 	if bands.Title > 0 {
-		title := BrandStyle.Render(m.sectionBodyTitle())
-		if def, ok := m.previewThemeDef(); ok && def.Palette["blue"] != "" {
-			// The preview repaints the screen's own title in the theme's accent, so
-			// the palette is seen and not only read.
-			title = lipgloss.NewStyle().Foreground(lipgloss.Color(def.Palette["blue"])).Bold(true).Render(m.sectionBodyTitle())
-		}
-		body = append(body, title)
+		// The title is the brand role and nothing else. While a preview is active the
+		// chrome has already been repainted in the theme under the cursor -- including
+		// this role, which maps to the definition's blue -- so a title built from the
+		// definition here would be the same colour drawn through a second path, and
+		// the one path that could disagree with the chrome around it.
+		body = append(body, BrandStyle.Render(m.sectionBodyTitle()))
 	}
 	body = append(body, clipLines(detail, bands.Detail, width)...)
 	body = padRows(body, bands.Title+bands.Detail)
@@ -2099,15 +2215,20 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 
 	// The entries are the part of the list the frame windows; the tail is always
 	// drawn, at the foot of the band, so the way back and the actions never move.
-	scrollable := len(entries)
+	scrollable := entryTotal
 	var start, end int
-	if m.Cursor < scrollable {
+	var visible []string
+	if wrappedEntries {
+		start, end = 0, scrollable
+		visible = entries
+	} else if m.Cursor < scrollable {
 		start, end = listWindow(m.Cursor, entryWindow, scrollable)
+		visible = entries[start:end]
 	} else {
 		end = scrollable
 		start = max(0, end-entryWindow)
+		visible = entries[start:end]
 	}
-	visible := entries[start:end]
 
 	listed := append([]string{}, visible...)
 	listed = append(listed, preview...)
@@ -2121,8 +2242,16 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	listed = append(listed, padRows(nil, bands.List-len(listed))...)
 	if len(listed) > bands.List {
 		// A tail taller than its reservation keeps the rows that end the screen --
-		// the way back is the last of them -- and gives up the top of the block.
+		// the way back is the last of them -- and gives up the top of the block. The
+		// header's range is measured from what is left, so it can never advertise a
+		// row the frame dropped.
+		over := len(listed) - bands.List
 		listed = listed[len(listed)-bands.List:]
+		if !wrappedEntries {
+			if dropped := min(over, max(0, end-start)); dropped > 0 {
+				end -= dropped
+			}
+		}
 	}
 	listed = padRows(listed, bands.List)
 	body = append(body, listed...)
@@ -3961,6 +4090,13 @@ func (m Model) renderSetup() string {
 // from every other list in the program -- and the shape a person sees while they
 // are answering the run should be the one they already know. The answers, their
 // order, the keys, the panels and the wizard's step counter are unchanged.
+//
+// The OS, terminal and shell questions are drawn in the reference grammar instead
+// (os_select_view.go, terminal_select_view.go, shell_select_view.go): the page is
+// the card, its title a chip on the border and its description the caption beside
+// it, with the answers as two-line rows. They keep this renderer's frame, hints and
+// step counter, and they fall back to the compact body below when the frame cannot
+// hold the card.
 func (m Model) renderSelection() string {
 	hints := []installerHint{hintUp, hintDown}
 	if m.Cursor >= 0 {
@@ -3975,15 +4111,40 @@ func (m Model) renderSelection() string {
 	// window is measured from what the head left, so a long note shortens the list
 	// rather than pushing it off the frame.
 	panels := m.panelsFor()
-	body, _, _, _ := m.menuCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(), 0, m.panelHints(panels, hints))
-
-	// The step counter is the wizard's vital sign, and it lives in the header
-	// now instead of costing the body a chip row above the title.
-	vital := ""
-	if current, total := m.wizardProgress(); total > 0 {
-		vital = meterRendered(current, total, 10)
+	bodyHints := m.panelHints(panels, hints)
+	if card, ok := m.selectionQuestionCard(bodyHints); ok {
+		return m.frame(m.headerName(), m.selectionVital(), card, hints)
 	}
-	return m.frame(m.headerName(), vital, body, hints)
+	body, _, _, _ := m.menuCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(), 0, bodyHints)
+
+	return m.frame(m.headerName(), m.selectionVital(), body, hints)
+}
+
+// selectionQuestionCard draws a question in the reference grammar's card, or
+// reports that this screen does not draw one -- or that this frame cannot hold it.
+// The screens that draw a card are the three whose answers have a subtitle to put
+// under the title; the rest keep the compact list.
+func (m Model) selectionQuestionCard(hints []installerHint) ([]string, bool) {
+	switch m.Screen {
+	case ScreenOSSelect:
+		return m.osSelectCardBody(hints)
+	case ScreenTerminalSelect:
+		return m.terminalSelectCardBody(hints)
+	case ScreenShellSelect:
+		return m.shellSelectCardBody(hints)
+	}
+	return nil, false
+}
+
+// selectionVital is the wizard's step counter in the header: the pickers are
+// detours of the setup screen and inherit its meter rather than claiming a step
+// of their own. It lives beside renderSelection because both of that screen's
+// shapes carry it, so the two cannot disagree about the count.
+func (m Model) selectionVital() string {
+	if current, total := m.wizardProgress(); total > 0 {
+		return meterRendered(current, total, 10)
+	}
+	return ""
 }
 
 // renderLearnTools draws the hub: one row per page of the in-installer wiki,
@@ -4983,12 +5144,12 @@ func (m Model) installingStepText() string {
 	if total == 0 {
 		return ""
 	}
-	current := m.CurrentStep + 1
-	if current > total {
-		current = total
-	}
+	current, _, _ := m.installingPosition()
 	if current < 1 {
 		current = 1
+	}
+	if current > total {
+		current = total
 	}
 	text := fmt.Sprintf("Step %d of %d", current, total)
 	if name := m.Steps[current-1].Name; name != "" {
@@ -4997,6 +5158,25 @@ func (m Model) installingStepText() string {
 		text += installingStepSeparator + name
 	}
 	return text
+}
+
+// installingPosition derives the step counter from the same progress the bar
+// draws, so the sentence and the percentage cannot disagree: the current step is
+// the first one the progress has not completed, and a run whose every step is
+// done reports the last step at 100% rather than a counter the bar contradicts.
+func (m Model) installingPosition() (current, total int, percent float64) {
+	total = len(m.Steps)
+	if total == 0 {
+		return 0, 0, 1
+	}
+	percent = m.installProgress()
+	done := int(percent * float64(total))
+	if done >= total {
+		current = total
+	} else {
+		current = done + 1
+	}
+	return current, total, percent
 }
 
 // installingTimeText is the run's clock: how long it has taken and how much is
@@ -5108,8 +5288,44 @@ func (m Model) installingRailRows(width, rows int) []string {
 		}
 		lines[i] = installingRailRow(step, width, cells, i == m.CurrentStep)
 	}
-	start, end := listWindow(running, rows, len(lines))
-	return lines[start:end]
+
+	// The window is measured in lines that include the two notes naming what it
+	// hid, so a short frame says how many steps it could not show instead of
+	// appearing to hold a plan that ended early. The running step always stays.
+	visible := max(1, rows)
+	start, end := listWindow(running, visible, len(lines))
+	trim := func() {
+		notes := 0
+		if start > 0 {
+			notes++
+		}
+		if end < len(lines) {
+			notes++
+		}
+		if len(lines[start:end])+notes > visible {
+			end -= len(lines[start:end]) + notes - visible
+			if end <= start {
+				end = start + 1
+			}
+		}
+	}
+	trim()
+
+	out := make([]string, 0, visible)
+	if start > 0 {
+		out = append(out, MutedStyle.Render(fmt.Sprintf("↑ %d more above", start)))
+	}
+	out = append(out, lines[start:end]...)
+	if end < len(lines) {
+		out = append(out, MutedStyle.Render(fmt.Sprintf("↓ %d more below", len(lines)-end)))
+	}
+	if len(out) > visible {
+		// A frame too tight for both notes and a row keeps the rows: the note is a
+		// decoration, the step in progress is the screen.
+		s, e := listWindow(running, visible, len(lines))
+		out = lines[s:e]
+	}
+	return out
 }
 
 // installingRailCells is the meter's width for a checklist column: the full meter
@@ -5215,13 +5431,9 @@ func (m Model) installingProgressRow(composition int) string {
 // the run is in progress, as the same bar-and-count the wizard uses at the top
 // of the flow.
 func (m Model) installingVital() string {
-	total := len(m.Steps)
+	current, total, _ := m.installingPosition()
 	if total == 0 {
 		return ""
-	}
-	current := m.CurrentStep + 1
-	if current > total {
-		current = total
 	}
 	return meterRendered(current, total, 10)
 }

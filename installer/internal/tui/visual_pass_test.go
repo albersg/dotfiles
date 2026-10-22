@@ -77,8 +77,12 @@ func TestHubCardStaysWhereItIsWhenTheCursorMoves(t *testing.T) {
 
 	first := bordersAt(0)
 	last := bordersAt(3)
-	if len(first) != 2 {
-		t.Fatalf("the hub card's borders are on %v rows, want a top and a bottom: %v", len(first), first)
+	// The screen draws two cards: the hub's own and the panel column beside it,
+	// which is the same grammar's card. What the guard holds is that the rows do
+	// not move, so any number of cards is fine and an odd one is a card without its
+	// bottom border.
+	if len(first) < 2 || len(first)%2 != 0 {
+		t.Fatalf("the hub's borders are on %v rows, want a top and a bottom for each card: %v", len(first), first)
 	}
 	if !reflect.DeepEqual(first, last) {
 		t.Errorf("the card moved with the cursor: borders at %v with the first row, %v with the last", first, last)

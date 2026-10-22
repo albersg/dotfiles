@@ -1,44 +1,44 @@
 [?25l[?2004h                                                                                                                                                                
-   Utilities                                                                                                                                         dev build  
+   Utilities                                                                                                        Linux · x86_64 · zsh · apt-get · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  No desktop theme switch is available here: no GNOME, KDE or macOS       System Overview                                                                       
-  session.                                                                ────────────────────────────────────────────────────────────────────────────────────  
-  WSL resources are not adjustable here: Linux is not WSL.                OS              Linux                                                                 
-  ╭────────────────────────────────────────────────────────────────────╮  Arch            x86_64                                                                
-  │ ▸ Change the dotfiles theme                                        │  Shell           zsh                                                                   
-  │   Recolour the installer and the system                            │  Packages        apt-get                                                               
-  │  Shell Startup                                                    │  Home            /home/testuser                                                        
-  │   Measure startup time                                             │                                                                                        
-  │  Installed Tools                                                  │  ╭─ Resources ──────────────────────────────────────────────────────────────────────╮  
-  │   Check latest versions                                            │  │ CPU             ▓▓▓▓▓░░░░░  45%                                                  │  
-  │  Check the machine against the last install                       │  │ Memory          ▓▓▓░░░░░░░ 4.2 GiB / 16.0 GiB                                    │  
-  │   Compare the machine with the record                              │  │ Disk            ▓▓▓▓░░░░░░ 180.8 GiB / 500.0 GiB                                 │  
-  │  SSH Configuration                                                │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  ╭─ System Utilities ─────────────────────────────────────────────────╮  ╭─ Theme and System Styling ───────────────────────── Personalise your environment ╮  
+  │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
+  │ ▸ Change the dotfiles theme                                      › │  │ Recolour the dotfiles installer and the system using your preferred theme.       │  
+  │   Recolour the installer and the system                            │  │                                                                                  │  
+  │  Shell Startup                                                  › │  │ ╭──────────────────────────────╮                                                 │  
+  │   Measure startup time                                             │  │ │ ⚠ Not available on this host │                                                 │  
+  │  Installed Tools                                                › │  │ ╰──────────────────────────────╯                                                 │  
+  │   Check latest versions                                            │  │                                                                                  │  
+  │  Check the machine against the last install                     › │  │ No desktop theme switch is available here: no GNOME, KDE or macOS session. This  │  
+  │   Compare the machine with the record                              │  │ installer is currently running in a headless/terminal (WSL) environment.         │  
+  │  SSH Configuration                                              › │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
   │   Manage SSH keys                                                  │                                                                                        
-  │  Report the terminal capabilities                                 │   Everything looks good!                                                              
-  │   What this terminal can do                                        │                                                                                        
-  │  Clean Dev Caches                                                 │                                                                                        
-  │   Remove temporary files                                           │                                                                                        
-  │  Network Diagnostics                                              │                                                                                        
-  │   Check connectivity                                               │                                                                                        
-  │  Find Available Port                                              │                                                                                        
-  │   Find an open port                                                │                                                                                        
-  │  Diagnostics                                                      │                                                                                        
-  │   Check common issues                                              │                                                                                        
-  │  Back                                                             │                                                                                        
-  ╰────────────────────────────────────────────────────────────────────╯                                                                                        
+  │  Report the terminal capabilities                               › │  ╭─ System Overview ──────────────────────────────── Information about this machine ╮  
+  │   What this terminal can do                                        │  │──────────────────────────────────────────────────────────────────────────────────│  
+  │  Clean Dev Caches                                               › │  │ ▸ Selected           Change the dotfiles theme — Recolour the installer and the  │  
+  │   Remove temporary files                                           │  │                      system                                                      │  
+  │  Network Diagnostics                                            › │  │  OS                 Linux                                                       │  
+  │   Check connectivity                                               │  │  Arch               x86_64                                                      │  
+  │  Find Available Port                                            › │  │  Shell              zsh                                                         │  
+  │   Find an open port                                                │  │  Packages           apt-get                                                     │  
+  │  Diagnostics                                                    › │  │  Home               /home/testuser                                              │  
+  │   Check common issues                                              │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  │  Back                                                           › │                                                                                        
+  ╰────────────────────────────────────────────────────────────────────╯  ╭─ Resources ────────────────────────────────────────── Live system resource usage ╮  
+                                                                          │──────────────────────────────────────────────────────────────────────────────────│  
+                                                                          │ CPU      █████████░░░░░░░░░░░ 45%                                                │  
+                                                                          │ Memory   █████░░░░░░░░░░░░░░░ 4.2 GiB / 16.0 GiB  26%                            │  
+                                                                          │ Disk     ███████░░░░░░░░░░░░░ 180.8 GiB / 500.0 GiB  36%                         │  
+                                                                          ╰──────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                                                                 
+                                                                          ╭─ Recommended next actions ──────────────────── Make the most of your environment ╮  
+                                                                          │──────────────────────────────────────────────────────────────────────────────────│  
+                                                                          │  1  Inspect terminal capabilities to see what features are supported.            │  
+                                                                          │  2  Check installed tools and verify your setup.                                 │  
+                                                                          │  3  Continue to diagnostics if you're troubleshooting issues.                    │  
+                                                                          ╰──────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                                                                 
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
+]2;dotfiles Installer                                                                                                                                                                
                                                                                                                                                                 
                                                                                                                                                                 
    /\______/\                                                                                                                                                   
@@ -46,5 +46,5 @@
   (  o    o  )                                                                                                                                                  
   (     ^    )                                                                                                                                                  
    >  <  >  <                                                                                                                                                   
-  ● Ready ─────────────────────────────────────────────────────────────────────────────�]2;dotfiles Installer��──────────────────────────────────────────────────────────────────────  
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
                                                                                                                  ↑/k up • ↓/j down • [Enter] open • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

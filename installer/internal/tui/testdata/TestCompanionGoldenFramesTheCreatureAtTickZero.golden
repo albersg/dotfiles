@@ -1,25 +1,25 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
    Main Menu                                                                                                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-  ╭────────────────────────────────────────────────────────────────────╮  What will happen · Your trainer · Did you know?                                       
-  │ ▸  Start Installation                                             │  ────────────────────────────────────────────────────────────────────────────────────  
-  │     Install or update your dotfiles                                │  Selected        Start Installation                                                    
-  ├─ Learn ────────────────────────────────────────────────────────────┤  on Linux (detected)                                                                   
-  │    Vim & Neovim                                                   │  Steps           10                                                                    
-  │     Vim & Neovim, tools, tips...                                   │  ▸  1  Prefer IPv4                                                                     
-  │    Learn About Tools                                              │        Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into broken    
-  │     The tools this run would install                               │        IPv6 routes.                                                                    
-  ├─ Session ──────────────────────────────────────────────────────────┤                                                                                        
-  │    Utilities                                                      │   Press Enter to continue                                                              
-  │     Utilities and advanced tools                                   │                                                                                        
-  │    Exit                                                           │                                                                                        
-  │     Goodbye!                                                       │                                                                                        
-  ╰────────────────────────────────────────────────────────────────────╯                                                                                        
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
+  ╭────────────────────────────────────────────────────────────────────╮  ╭─ What will happen ───────────────────────────────── Your trainer · Did you know? ╮  
+  │ ▸  Start Installation                                             │  │──────────────────────────────────────────────────────────────────────────────────│  
+  │     Install or update your dotfiles                                │  │ Selected        Start Installation                                               │  
+  ├─ Learn ────────────────────────────────────────────────────────────┤  │ on Linux (detected)                                                              │  
+  │    Vim & Neovim                                                   │  │ Steps           10                                                               │  
+  │     Vim & Neovim, tools, tips...                                   │  │ ▸  1  Prefer IPv4                                                                │  
+  │    Learn About Tools                                              │  │       Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into      │  
+  │     The tools this run would install                               │  │       broken IPv6 routes.                                                        │  
+  ├─ Session ──────────────────────────────────────────────────────────┤  │                                                                                  │  
+  │    Utilities                                                      │  │  Press Enter to continue                                                         │  
+  │     Utilities and advanced tools                                   │  │                                                                                  │  
+  │    Exit                                                           │  │                                                                                  │  
+  │     Goodbye!                                                       │  │                                                                                  │  
+  ╰────────────────────────────────────────────────────────────────────╯  │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          │                                                                                  │  
+                                                                          ╰──────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 

@@ -77,7 +77,7 @@ The user's words, verbatim:
 
 | ID | Specs | Route | Commit |
 |----|-------|-------|--------|
-| T1 | S1 | The theme pass: every new surface uses the applied theme's roles; the theme switch still recolours the installer and the system together; VHS captures under the default and one alternate theme prove it; no hardcoded palette | (pending) |
+| T1 | S1 | The theme pass: every new surface uses the applied theme's roles; the theme switch still recolours the installer and the system together; the guards measure the switch, the builder and the contrast; no hardcoded palette | (in the tree, uncommitted — the role sweep, the marker-palette guard, the filled-style contrast guards and the emblem's rebuilt ramp) |
 | T2 | S2 | The frame chrome: the header bar and the status bar, the per-screen state words, the footer hints at the right | (in the tree, uncommitted) |
 | T3 | S3, S4 | The main menu: the two-line rows with icons and subtitles, the group titles, the selected row's detail panel and its button; the 80x24 floor keeps the one-line rows | (in the tree, uncommitted — layout and vocabulary in the current palette) |
 | T4 | S5 | The dashboard cards, the greeting with the user's name, the tagline and the call to action | (in the tree, uncommitted — the dashboard, the cards and the named greeting) |
@@ -705,4 +705,326 @@ Follow-ups this slice found and did not take:
   mockup's title line would repeat the chip or invent a sentence.
 - `TestCaptureEveryRedesignedPage` lives in `zz_dump_test.go`, a name from the
   inspection harness the slice used; it wants renaming to `capture_redesign_test.go`
-  when the slice is committed.
+  when the slice is committed. (Done in the tree: the file is
+  `capture_redesign_test.go`.)
+
+L17. T1 landed in the tree (uncommitted): the theme pass. It changed no layout and
+no colour value; it made the palette the only source of colour on the surfaces the
+redesign added, proved it with guards, and removed what the redesign orphaned.
+
+**The audit is measured, not read.** Every surface is rendered on a true-colour
+terminal under the default chrome and under an applied theme, and every colour the
+frame emits is checked against the palette it is wearing (`38;2;r;g;b` /
+`48;2;r;g;b` read off the escapes, both members of every adaptive pair accepted).
+The selector is the one surface allowed the definitions' own colours, because its
+cards, its palette board and the preview swatches are pictures of other themes;
+the exemption is written into the guard rather than assumed.
+
+| surface | roles it draws through | guard |
+|---------|------------------------|-------|
+| header bar (chip and rule), status bar (dot, state word, key hints) | Brand, Success for the crown, OnFill on the chip, Rule, AccentKey/HelpVerb for the keys, Ink for the word | the role sweep on all 27 surfaces; the existing status-bar guards |
+| two-line rows, group titles, the main menu's panel and its button | RowBar/RowBarMarker, Ink, Muted, Brand, Button (OnFill on BrandSoft) | the role sweep; the filled-style floor |
+| the setup table and its band | PanelBorder, AccentKey for the icon, Ink, RowBar/RowBarMarker, Brand | the role sweep; the filled-style floor |
+| the utilities card, the System Overview panel, the Resources card, the verdict | PanelBorder, AccentKey, Ink, Muted, Meter/MeterFilled, Success for the verdict | the role sweep |
+| the theme grid, the card label, the floor's list and its strip | Brand, Muted, Ink, RowBar/RowBarMarker, Warning for the tip; the definitions' palettes for the pictures | the role sweep (with the definitions allowed); the miniature guard |
+| the installing stack, checklist, log card and bar | Brand, Success, Error, Warning, Muted, RowBar, MeterOnBar, ProgressBarFilled/Empty | the role sweep; the filled-style floor |
+| the completion, backup, restore and dead-end cards | Success/Error, PanelBorder, Ink, Muted, Brand, AccentKey | the role sweep |
+| the remaining pages (pickers, learn tables, keymaps, doctor, update center) | Brand, Muted, Ink, PanelBorder, Success/Warning/Error, Code | the role sweep |
+
+**Two things were actually wrong.**
+
+- **The emblem's ramp was built once, at package init.** `var emblemRampStyles
+  = []lipgloss.Style{...Primary, Secondary, Accent}` was initialised before
+  `init()` ran `applyUIColors`, so all three stops held the zero value and the
+  dashboard's lockup had no ramp in any theme -- not the default one either. It is
+  `EmblemRampStyles` now, rebuilt with everything else in `applyUIColors`, and
+  `renderEmblem` draws the lockup plain rather than indexing a stop that is not
+  there. This is the case the builder guard was written for: a style that is not
+  rebuilt cannot paint the palette it was given.
+- **The section screens built their body title a second time.** While a preview was
+  active they painted it from `def.Palette["blue"]` directly, where the preview
+  had already repainted the brand role to that same blue: two paths to one colour,
+  and the one path that could disagree with the chrome around it (a definition that
+  cannot be previewed painted a blue nothing else wore). The title is `BrandStyle`
+  and nothing else.
+
+**What was removed.** `BoxStyle` (the old installing log box was its last caller,
+T8) and `HelpStyle` (deadEnd's one-line way out; T9 routed the dead ends through
+the frame, which left its own doc comment saying it was still used). Two styles are
+unreferenced on this branch *and on main* -- `TitleStyle` and `DangerStyle` -- and
+they are deliberately not this slice's: nothing the redesign dropped stopped using
+them, so removing them is a separate cleanup rather than a piece of the redesign.
+
+**The guards** (new, in `theme_audit_test.go`):
+
+- `TestEveryRedesignedSurfacePaintsOnlyTheThemesRoles` -- the no-literal rule, 27
+  surfaces at 80x24 and 160x50, under the default chrome and under an applied theme.
+- `TestTheThemeSwitchRecoloursEveryRedesignedSurface` -- the switch reaches every
+  surface (the theme's blue appears, the plain frame has none of it), and the paint
+  is a render: clearing the record draws the bytes the model drew before, and the
+  package palette is the one `View` started with.
+- `TestApplyUIColorsRebuildsEveryStyleTheSurfacesDrawWith` -- with a palette whose
+  every field is a distinct marker colour, every style var renders a marker and
+  nothing else. A style built anywhere but the builder keeps the default palette
+  and fails here.
+- `TestTheSplashLockupWearsTheThemesRamp` -- the dashboard's emblem paints exactly
+  the three ramp stops, under the default chrome and under an applied theme.
+- `TestTheFilledStylesClearTheOnFillFloorInEveryTheme` and
+  `TestTheRedesignKeepsTheBodyFloorOnEveryRoleItDrawsIn` -- the contrast the new
+  surfaces draw with: every style that fills a block is measured ink-on-fill at the
+  3:1 a bold run needs (for every shipped theme and for the default chrome), and the
+  body ink, the key tone and the muted role are held to the 4.5:1 / 3:1 ladder the
+  drift guard already uses.
+
+**The contrast read.** The filled pairs pass in every theme: the on-fill ink is
+chosen by `themeOnFillInk` and the guard measures the styles, not just the fields.
+The body ink clears 4.5:1 in every theme; the key tone does too. The muted role
+sits at 3.24:1 on the shipped default on purpose (it is metadata, and darker slate
+would stop reading as metadata), which is why its floor is the 3:1 ladder and not
+the body floor. **The one pair that does not clear a text floor is the marker's
+ink**: `RowBarMarkerStyle` draws the accent on the brand fill -- 1.29:1 on the
+shipped default, 1.3-1.9:1 across the seven themes -- and it is left as it is,
+because it paints glyphs and never a word (the cursor's `▸`, the setup table's
+chevron, the checklist's state glyph, the picker's `●`), and every word drawn on a
+bar goes through `RowBarStyle`, which clears the floor. If the marker is ever meant
+to carry text, the fix is a palette decision the mockup already answers (its bar
+labels are all on-fill ink) and not something this pass could settle by itself.
+
+**L6's status-dot follow-up, re-read and kept.** `Ready` and `Done` take the
+success role, `Installing` the brand, `Preview mode` the accent, `Failed` the error
+-- four roles for five states, every one of them measured by the sweep -- and the
+word beside each dot is body ink, so the tone is decoration and the 4.5:1 floor is
+carried by text.
+
+**What did not move.** No golden and no layout: the ramp is colour-only and the
+goldens that carry escapes do not draw the dashboard, the removed title branch
+emitted the same bytes `BrandStyle` now does, and the two removed styles were
+referenced by nothing outside `styles.go`. The twelve-terminal fit matrix is
+unchanged.
+
+**Pending.** The VHS captures were not re-recorded in this slice (the short loop is
+the focused tests and the goldens; `make screens` runs with the PR). The
+companion's possession ink is the one literal colour left in the package --
+`companionEmberColour`/`companionHornColour` in `companion.go` and the one-row
+art's `CompanionEmberStyle` (`#ff2d2d`) -- and it is outside both the style builder
+and the redesign's surfaces: the possession is drawn as a sprite the theme has no
+opinion about, which is what that code's own comment says, and a palette for it is
+a creature-art decision rather than a theme one. `TitleStyle` and `DangerStyle` are
+still unreferenced (above).
+
+L18. User supplied four new reference screens and made them the primary visual
+reference: Home, Utilities, Updates and Shell Startup
+(/tmp/pi-clipboard-344905b0-cf83-4c41-89d5-585ee20013e1.png,
+/tmp/pi-clipboard-563ff061-2bcf-40e8-9ced-1009de3220b2.png,
+/tmp/pi-clipboard-950f6c50-6f0f-4f06-b0e6-2a158fc37c01.png,
+/tmp/pi-clipboard-43e31190-8c48-4fc0-97ed-a6d9643f7bd5.png). Decision: reproduce
+them as faithfully as Bubble Tea/Lip Gloss allow on top of the current work, keep
+every function, key and real datum, keep the theme roles, the 80x24 usability and
+the identity (pixel diamond, wolf, violet, retro), and extend the same language to
+every other screen. The shared grammar they add: a filled chip label plus a
+right-aligned caption on every card, a rule under it, rows with icon/title/subtitle
+and a chevron, filled selection bars with a marker, numbered steps, bordered stat
+boxes, action buttons that carry their key, fact rows with icons, grouped tables
+with a scrollbar, resource bars, the warning badge, and a footer that keeps Ready
+plus a centre status plus the key hints. The audit's P1 functional fixes remain
+valid and are folded into this pass; the audit's P2 cosmetics are superseded.
+
+
+L19. The four reference screens are reproduced on the current branch, and the
+audit's P1 functional fixes are folded in.
+
+**The shared grammar is code now** (`components.go`): `card` (a filled chip on the
+top border, a right-aligned muted caption, a rule under them, then the body),
+`cardRowLines` (icon, title, subtitle, right chevron; the selected row is one
+filled bar with the marker and on-fill subtitle), `numberedStepLines`, `statBoxLines`,
+`actionButtonRow`/`actionButtonRowAll` (each press carries its key; the primary is
+filled), `iconFactLines` (a glyph, a label at a shared column, a wrapped value),
+`resourceBarRow` (filled bar, hatched empty part, the value and percent),
+`warningBadge` (a bordered amber box) and `groupedTableHeader`. They are built
+only from the palette's roles (`CardChipStyle`, `StepNumberStyle`, `BadgeStyle`,
+`OnFillMutedStyle`, `TableHeaderStyle`, all rebuilt by `applyUIColors`). The
+footer's status row now carries an optional centred line (`footerCenterStatus`).
+
+**Home** (`home_view.go`): the reference's two columns, the lockup and wordmark,
+`Your personal development environment.` / `Fast. Consistent. Yours.`, the four
+machine cards, the greeting, the environment sentence, the filled
+`▶ Press [s] to start installation` and `or explore the menu with [Tab]`, and at
+the right `Your machine`, `Next steps` (the real plan grouped by `InstallStep.Area`)
+and `Recent backup` (the newest backup, or nothing). The 80x24 floor keeps the
+compact dashboard. Tab now opens the menu, as the reference's footer says.
+
+**Utilities** (`utilities_cards.go`): the card of two-line rows with its own
+subtitle and chevrons, windowed with `↑ N more above` / `↓ N more below`, beside
+`Theme and System Styling` (the real switch availability and the amber badge with
+the section's own reason), `System Overview` (the real facts and the selected row),
+`Resources` (the sampler's own CPU/memory/disk) and `Recommended next actions`
+(only jobs the handler really offers). The compact card stays at the floor.
+
+**Updates** (`update_center_view.go`): the stats strip, the filter pills, the
+grouped table with a checkbox column, the `Package / Current → New version /
+Manager / Scope` header, a scrollbar, the selected row filled, the focused entry's
+card (`Installed`, `Candidate`, `Held`, `Note`, `Read with` — facts the table row
+does not carry, so the detail no longer repeats the row) and the real keys. The
+floor keeps the section renderer.
+
+**Shell Startup** (`shell_audit_view.go`): the clock art, `The shell's startup`
+with the numbered what/how many/controls rows, the filled `[s] Measure the shell's
+startup` beside the real `[m]`/`[n]`/`[w]`/`[b]` options, `Results` with stat boxes
+and the per-run bars and min/max/average/median, `Recent runs`, `Methodology` and
+the footer's own `Median … over N of M runs` status.
+
+**Functional fixes.** Escape on Setup keeps `Choices` and `SetupCursor`; the
+utilities overview names the selected row; the section header's `Showing X-Y of Z`
+is recomputed after the list band is trimmed, so it cannot advertise a row the
+frame dropped; the update detail states only facts the row lacks; the theme
+palette says `Showing: the applied theme` or `the previewed theme (press Enter to
+apply)`; the installing floor names the checklist rows it hides and the step
+counter is derived from the same progress as the bar; Escape quits the Complete
+and Error screens; the doctor/update-center rows wrap onto a second line where the
+list band has room and keep the one-line rows where it does not.
+
+**Deviations kept deliberately.** The machine/plan/backup cards use the model's
+real names (`Preparation`, `The extras`, …) rather than the reference's invented
+copy; the update detail has no invented package description or install date; the
+shell results show the model's samples (no per-run timestamps), and `Previous
+median` appears only when the stored history has one; the wide layouts are gated
+by row budgets, so a short frame falls back to the existing compact renderer; the
+creature is still placed by the frame, not by the home body.
+
+**Goldens.** `TestDashboardWideGolden`, `TestUtilitiesWideGolden`,
+`TestShellAuditGolden`, `TestInstallingScreenGolden`, `TestInstallingLiveGolden`,
+`TestInstallingTruecolorGolden`, `TestThemePickerWideGolden` and
+`TestWelcomeLivePanelGolden` were regenerated; `TestShellAuditWideGolden` and
+`TestUpdateCenterWideGolden` are new.
+
+**Still to extend.** The reference grammar has not yet replaced the section
+renderer used by the doctor, the other utility reports (WSL resources, terminal
+capabilities, network, ports, SSH, disk cleaner, install verify), the wizard's
+pickers, the Learn/keymap tables, the trainer and the backup/restore screens:
+they keep the existing card/list grammar. Their rows and keys are unchanged; they
+are the next slices, not regressions of this one.
+
+L20. The first wizard picker moved onto the grammar: the OS question is drawn as
+the reference's card (`os_select_view.go`), and nothing else about the screen
+changed.
+
+- **The page is the card.** The screen's own title — minus the `Step N:` prefix the
+  header's meter owns — is the chip set into the card's top border, and the
+  screen's own description (`Detected: Linux`, or the undetected sentence) is the
+  caption at the right of the same row. There is no title line above the card any
+  more: it was the same words twice once the chip carried them, which is how the
+  section screens already draw (`sectionWideTitle`).
+- **The answers are grammar rows.** `m.GetCurrentOptions()` in the order the key
+  handler reads them, each as icon, title, muted subtitle and chevron, with the
+  cursor's row filled and marked (`cardRowLines`). The subtitles name the package
+  manager each platform is installed through — Homebrew and the Apple toolchain,
+  the distribution's own manager, `pkg` on Termux — because that is the only thing
+  the choice changes about the run; no fact about the host is invented.
+- **The caption cannot be lost.** `card` gives its caption back when the border
+  row has no room for it, and on an undetected host that sentence is the screen's
+  only fact, so the card moves it inside the body instead of dropping it (80 wide,
+  the undetected sentence, is the case).
+- **The floor keeps a fallback.** The card is drawn when the frame can hold it —
+  a content width of 32 columns and a row budget that holds the chrome plus every
+  answer — and the compact list is drawn below that (36 columns, or 80x12), which
+  is the same answers in one line each. The gate reads the frame only, never the
+  cursor, so the shape cannot change while the user walks the answers.
+- Unchanged, deliberately: the recorded answer (`Choices.OS`), the option labels
+  and their order, Enter/Esc and the arrows, the plan panel beside the card, the
+  wizard's `1/2` meter, and every other picker, which keeps the compact list until
+  its own rows have subtitles.
+
+Guards: `TestOSSelectDrawsTheReferenceGrammar` (the chip, the caption, the closing
+border, the rows, the legend at 80x24 and 160x50),
+`TestOSSelectRowsAreTheModelsAnswersInOrder` (the model's answers in order, one
+marker, on the cursor's row), `TestOSSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
+`TestOSSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
+`TestOSSelectKeepsTheDescriptionWhenTheBorderCannotHoldIt`. Goldens:
+`TestOSSelectGolden` regenerated, `TestOSSelectWideGolden` new.
+
+L21. The terminal question moved onto the grammar, and the card it draws is now
+one shared piece rather than the OS screen's own.
+
+- **The card and the gate are shared** (`components.go`): `questionCard` (the
+  chip, the caption, the rule, the groups of rows, and the caption moved inside
+  when the border row has no room for it), `questionCardGroups` (one grammar row
+  per answer in the option list's own order, the option list's separator drawn as
+  the card's divider, the cursor's row filled and marked), `questionCardWidth`
+  (the width the card is drawn in and the content measure its rows get) and
+  `questionCardBody` (the gate: a readable content width and a row budget that
+  holds the composed card). `cardWidth`/`cardInner`/`cardBorderCarriesCaption`
+  are the one arithmetic `card` and the caption test both read, so the drawing and
+  the decision cannot disagree. The OS screen keeps its own glyphs, subtitles and
+  minimum width and calls the same four functions; its output is unchanged.
+- **The terminal question draws the same card** (`terminal_select_view.go`): the
+  screen's own title minus its `Step N:` prefix as the chip, its own
+  description as the caption, every answer as an icon/title/subtitle/chevron row,
+  and `Learn about terminals` in the group the option list's separator divides
+  off. The subtitles are short phrases from the tool pages the installer already
+  ships (`tools_info.go`) for the four terminals, `Install no terminal` for
+  `None` (the run really does skip the terminal step) and `Each terminal's pros
+  and cons` for the shortcut row; every one is under the 50 columns the left
+  column leaves a row at the 124-column floor, so the row is never cut.
+- **Unchanged, deliberately:** the recorded answer (`Choices.Terminal`), the
+  option labels and their order (the macOS list still adds Kitty, WSL still shows
+  the skip note), the separator, Enter/Esc and the arrows, the plan panel, the
+  `1/2` meter, the Ghostty warning detour, the compact fallback and every other
+  picker.
+- **The note keeps its words.** The terminal question is the one whose
+  description is two sentences (the WSL skip, the Alacritty build cost), and the
+  card's border row cannot hold either beside the chip; the shared card moves the
+  note inside itself, wrapped, instead of giving it back.
+- **The floor still falls back.** The card is drawn when the frame can hold it
+  (content ≥ 32 columns and the rows to spare); 36 columns wide or 80x12 draws
+  the compact list, which is the same answers in one line each.
+
+Guards: `TestTerminalSelectDrawsTheReferenceGrammar` (the chip, the caption, the
+rows with their subtitles and chevrons, the legend and the state at 80x24 and
+160x50), `TestTerminalSelectRowsAreTheModelsAnswersInOrder` (the answers in order,
+the separator as the card's divider and not a row, one marker on the cursor's row),
+`TestTerminalSelectRowTableCoversEveryAnswer` (a one-cell glyph and a subtitle
+inside the row's measure for every answer the screen can offer),
+`TestTerminalSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
+`TestTerminalSelectKeepsItsShapeWhileTheCursorMoves`,
+`TestTerminalSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
+`TestTerminalSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
+`TestTerminalSelectGolden` and `TestTerminalSelectWideGolden` are new. The OS
+guards and both OS goldens pass unchanged.
+
+L22. The shell question moved onto the same shared card, and the slice is the third
+picker the grammar draws.
+
+- **The shell question draws the shared card** (`shell_select_view.go`): the
+  screen's own title minus its `Step N:` prefix as the chip, its own description as
+  the caption -- kept inside the card at both goldens, because the note names the
+  detected shell and is longer than the border row can hold beside the chip -- every
+  answer as an icon/title/subtitle/chevron row, and `Learn about shells` in the
+  group the option list's separator divides off. It calls `questionCard`,
+  `questionCardGroups`, `questionCardWidth` and `questionCardBody`
+  (`components.go`); no gate or row shape is copied, and the card the OS and
+  terminal questions draw is the one this question draws.
+- **The subtitles claim only what the run does.** Fish carries the Fisher bootstrap
+  the shipped `config.fish` performs, zsh the Oh My Zsh, Powerlevel10k and plugin
+  packages the `.zshrc` sources, nushell the `config.nu`/`env.nu` this installer
+  writes, and the shortcut row says it opens each shell's pros and cons; every one
+  is under the 50 columns the left column leaves a row at the 124-column floor, so
+  the row is never cut.
+- **Unchanged, deliberately:** the recorded answer (`Choices.Shell`), the option
+  labels and their order, the separator, Enter/Esc and the arrows, the plan panel,
+  the `1/2` meter, the compact fallback and every other picker.
+- **The floor still falls back.** The card is drawn when the frame can hold it
+  (content ≥ 32 columns and the rows to spare); 36 columns wide or 80x12 draws the
+  compact list, which is the same answers in one line each.
+
+Guards: `TestShellSelectDrawsTheReferenceGrammar` (the chip, the caption kept
+inside the card, the rows with their subtitles and chevrons, the legend and the
+state at 80x24 and 160x50), `TestShellSelectRowsAreTheModelsAnswersInOrder` (the
+answers in order, the separator as the card's divider and not a row, one marker on
+the cursor's row), `TestShellSelectRowTableCoversEveryAnswer` (a one-cell glyph and
+a subtitle inside the row's measure for every answer the screen can offer),
+`TestShellSelectLeavesEnterUnnamedWithNoRowUnderTheCursor`,
+`TestShellSelectKeepsItsShapeWhileTheCursorMoves`,
+`TestShellSelectFallsBackToTheCompactListWhenTheCardCannotFit` and
+`TestShellSelectKeepsTheNoteWhenTheBorderCannotHoldIt`. Goldens:
+`TestShellSelectGolden` and `TestShellSelectWideGolden` are new. The OS and
+terminal guards and their goldens pass unchanged.

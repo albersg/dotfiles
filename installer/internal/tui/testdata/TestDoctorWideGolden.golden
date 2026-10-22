@@ -1,0 +1,50 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  ╭─ Development environment ──────────────────────────────────────────╮  ╭─ Details ────────────────────────────────────────────────────────────────────────╮  
+  │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
+  │ ▸ Error: ~/.ssh has mode 0755                                      │  │ 5 checks ran, 5 answers finished. The list is the problems and the unknown       │  
+  │ ! Warning: PATH entry 4 of 9: ~/bin                                │  │ answers only; press t for all of them.                                           │  
+  │ ? Unknown: git resolves to /usr/bin/git, 2 copies, and no version  │  │ Error — ~/.ssh has mode 0755                                                     │  
+  │   could be read                                                    │  │ Evidence: the directory has mode 0755, and OpenSSH wants 0700                    │  
+  │ ────────────────────────────────────────────────────────────────── │  │ Impact: OpenSSH refuses a private key inside a directory others can read, so     │  
+  │   [a] Run every check                                              │  │ every ssh command fails until it is fixed.                                       │  
+  │   Run only: …                                                      │  │ What to do: The doctor can set it to 0700 for you, or run `chmod 700 ~/.ssh`.    │  
+  │   [r] Retry the checks that could not run                          │  │                                                                                  │  
+  │   [w] Write the report to a file                                   │  │ 5 checks: 1 error, 1 warning, 1 unknown, 1 not applicable, 1 ok. Kept at         │  
+  │   [t] Show every finding                                           │  │ ~/.local/state/dotfiles/doctor-report.txt                                        │  
+  │ ────────────────────────────────────────────────────────────────── │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  │ ← Back                                                             │                                                                                        
+  ╰────────────────────────────────────────────────────────────────────╯                                                                                        
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                     ↑/k ↓/j move • [a] run every check • [c] the category under the cursor • [t] problems/all • [w] write the report • [r] retry • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

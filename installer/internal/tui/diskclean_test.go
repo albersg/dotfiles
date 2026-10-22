@@ -823,6 +823,11 @@ func TestDiskCleanerCannotSelectWhatNothingCanBeDoneAbout(t *testing.T) {
 // columns the card is drawn in the right column beside the list, so the helper
 // reads that column alone: a phrase the card wraps would otherwise be split by a
 // row of the list on the same line.
+//
+// The card's own chrome -- its side borders and the rule under its chip -- is
+// chrome, not words, so it is dropped before the phrase is read: a sentence the
+// card wraps would otherwise be split by the border at the end of every line, and
+// the assertion would fail on a screen that does say it.
 func diskCleanFlatView(m Model) string {
 	plain := ansiEscape.ReplaceAllString(m.View(), "")
 	l := layoutFor(m)
@@ -831,11 +836,23 @@ func diskCleanFlatView(m Model) string {
 		start := viewPaddingCols + l.Leading + l.Left + layoutGutter
 		var detail []string
 		for _, line := range strings.Split(plain, "\n") {
-			detail = append(detail, string(cellsFrom(line, start)))
+			detail = append(detail, stripCardChrome(string(cellsFrom(line, start))))
 		}
 		text = strings.Join(detail, "\n")
 	}
 	return strings.Join(strings.Fields(text), " ")
+}
+
+// stripCardChrome removes the glyphs a card draws around its body, so a phrase
+// that wraps inside the card still reads as one phrase.
+func stripCardChrome(line string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '│', '╭', '╮', '╰', '╯', '─':
+			return ' '
+		}
+		return r
+	}, line)
 }
 
 // diskCleanWholeView is the whole frame flattened the old way: the header, the

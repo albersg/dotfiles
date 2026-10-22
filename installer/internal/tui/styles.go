@@ -158,12 +158,10 @@ var (
 	WarningStyle  lipgloss.Style
 	InfoStyle     lipgloss.Style
 	MutedStyle    lipgloss.Style
-	BoxStyle      lipgloss.Style
 
 	ProgressBarFilled lipgloss.Style
 	ProgressBarEmpty  lipgloss.Style
 
-	HelpStyle lipgloss.Style
 	KeyStyle  lipgloss.Style
 	CodeStyle lipgloss.Style
 
@@ -191,6 +189,23 @@ var (
 	RowBarStyle            lipgloss.Style
 	RowBarMarkerStyle      lipgloss.Style
 	ButtonStyle            lipgloss.Style
+
+	// The reference screens' shared grammar: a filled chip on a card's border,
+	// the filled circle in front of a numbered step, the bordered warning badge,
+	// the ink a subtitle uses on a filled selection bar, and the muted table
+	// header. Every one is painted from a role the palette already carries.
+	CardChipStyle    lipgloss.Style
+	StepNumberStyle  lipgloss.Style
+	BadgeStyle       lipgloss.Style
+	OnFillMutedStyle lipgloss.Style
+	TableHeaderStyle lipgloss.Style
+
+	// EmblemRampStyles is the vertical ramp the splash emblem is drawn in: brand
+	// blue at the top, the softer secondary through the middle and the accent gold
+	// at the tip. Every stop is an existing palette entry, so the ramp is a use of
+	// the palette rather than a change to it -- and it is rebuilt with the rest,
+	// because the dashboard's lockup is the first thing a themed run shows.
+	EmblemRampStyles []lipgloss.Style
 )
 
 // currentUIColors is the palette the vars currently hold, so a caller can save
@@ -255,11 +270,6 @@ func applyUIColors(c uiColors) {
 	MutedStyle = lipgloss.NewStyle().
 		Foreground(TextMuted)
 
-	BoxStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(BorderActive).
-		Padding(1, 2)
-
 	// The progress bar's filled part is brand chrome, not a status colour:
 	// progress is not a state, and Success is reserved for the steps that are
 	// actually done. The bar's cells are glyphs (█ and ░), so these styles carry
@@ -269,13 +279,6 @@ func applyUIColors(c uiColors) {
 
 	ProgressBarEmpty = lipgloss.NewStyle().
 		Foreground(TextMuted)
-
-	// HelpStyle remains for deadEnd's one-line way out; the footer draws through
-	// AccentKeyStyle and HelpVerbStyle now.
-	HelpStyle = lipgloss.NewStyle().
-		Foreground(TextMuted).
-		Italic(true).
-		MarginTop(1)
 
 	KeyStyle = lipgloss.NewStyle().
 		Foreground(SyntaxKeyword).
@@ -402,6 +405,46 @@ func applyUIColors(c uiColors) {
 		Foreground(Accent).
 		Background(BrandSoft).
 		Bold(true)
+
+	// The reference grammar's parts. The card chip is the header tab's shape
+	// reused on a border, the step number a filled block of the brand role, the
+	// badge a bordered box in the warning role, and the on-fill subtitle the bar
+	// ink without the weight so a description reads under its title.
+	CardChipStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(Brand).
+		Bold(true).
+		Padding(0, 1)
+
+	StepNumberStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(Brand).
+		Bold(true).
+		Padding(0, 1)
+
+	BadgeStyle = lipgloss.NewStyle().
+		Foreground(Warning).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(Warning).
+		Padding(0, 1)
+
+	OnFillMutedStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(BrandSoft)
+
+	TableHeaderStyle = lipgloss.NewStyle().
+		Foreground(InkDim).
+		Bold(true)
+
+	// The splash emblem's ramp, rebuilt here with everything else. It is a slice of
+	// styles rather than one because the lockup is painted a row at a time, top to
+	// tip, and a ramp built anywhere else would keep whichever palette was current
+	// when it was built.
+	EmblemRampStyles = []lipgloss.Style{
+		lipgloss.NewStyle().Foreground(Primary).Bold(true),
+		lipgloss.NewStyle().Foreground(Secondary).Bold(true),
+		lipgloss.NewStyle().Foreground(Accent).Bold(true),
+	}
 }
 
 // CenterHorizontally centers text horizontally within a given width

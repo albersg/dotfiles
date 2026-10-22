@@ -393,9 +393,10 @@ func (m Model) updateCenterItemFacts(item updates.Item) []string {
 	if installed == "" {
 		installed = "not reported"
 	}
+	// The name and the owner are already on the row and on the card's title. The
+	// detail states only what the row cannot: the full versions, the hold, the
+	// manager's note and the exact command the answer was read with.
 	facts := []string{
-		fact("Name", item.Name),
-		fact("Manager", item.Origin()),
 		fact("Installed", installed),
 		fact("Available", item.Available),
 	}
@@ -830,19 +831,24 @@ func (m Model) updateCenterNothingToApplyReason() string {
 // behind a row that opens onto nothing.
 func (m Model) updateCenterDescription() []string {
 	state := m.UpdateCenter
-	paragraphs := []string{
-		"Reads what this machine's managers say is out of date and moves only what you select; nothing changes " +
-			"until a selection is confirmed.",
-	}
+	var paragraphs []string
 
 	switch {
 	case state.Applying:
 		paragraphs = append(paragraphs, m.updateCenterRunningParagraphs()...)
-		return paragraphs
+		return append([]string{"Reads what this machine's managers say is out of date and moves only what you select; nothing changes until a selection is confirmed."}, paragraphs...)
 	case state.Confirming:
 		paragraphs = append(paragraphs, m.updateCenterPlanParagraphs()...)
-		return paragraphs
+		return append([]string{"Reads what this machine's managers say is out of date and moves only what you select; nothing changes until a selection is confirmed."}, paragraphs...)
 	}
+
+	// The entry under the cursor comes FIRST: it is the one thing the reader is
+	// deciding about, and at the floor the detail band is four rows -- a generic
+	// introduction would spend them before a single fact arrived.
+	if item, ok := m.updateCenterFocusedItem(); ok {
+		paragraphs = append(paragraphs, m.updateCenterItemFacts(item)...)
+	}
+	paragraphs = append(paragraphs, "Reads what this machine's managers say is out of date and moves only what you select; nothing changes until a selection is confirmed.")
 
 	if !state.Resolved {
 		return append(paragraphs, "Reading which managers this machine has…")
@@ -852,12 +858,8 @@ func (m Model) updateCenterDescription() []string {
 		return append(paragraphs, "No package manager or toolchain manager this build knows could be detected here.")
 	}
 
-	// The entry under the cursor comes before the list's own state: it is the one
-	// thing the reader is deciding about, and its versions, hold and read command
-	// are the facts that decision needs.
-	if item, ok := m.updateCenterFocusedItem(); ok {
-		paragraphs = append(paragraphs, m.updateCenterItemFacts(item)...)
-	}
+	// The entry under the cursor was already placed before the introduction, so
+	// there is no second copy of its facts here.
 
 	for _, channel := range state.Channels {
 		paragraphs = append(paragraphs, m.updateCenterChannelParagraphs(channel)...)
@@ -1179,7 +1181,16 @@ func updateCenterItemNames(items []updates.Item) string {
 // is not offered for anything: this screen opens no screen of its own and the
 // list's rows are switches, not details.
 func (m Model) renderUpdateCenter() string {
-	return m.renderThemeScreen(m.updateCenterDescription(), m.UpdateCenter.Notice, m.updateCenterHints())
+	// The reference's two-column table and detail card where the frame holds them;
+	// the section renderer's one column at the 80x24 floor, where the same rows
+	// and the same keys are drawn.
+	l := layoutFor(m)
+	hints := m.updateCenterHints()
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, hints))
+	if m.updateCenterWide(l, budget) {
+		return m.renderUpdateCenterWide(l, budget)
+	}
+	return m.renderThemeScreen(m.updateCenterDescription(), m.UpdateCenter.Notice, hints)
 }
 
 // updateCenterHints is the footer of the state the screen is in. It names the

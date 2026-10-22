@@ -750,6 +750,96 @@ func TestOSSelectGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Select Your Operating System"))
 }
 
+// TestOSSelectWideGolden pins the same question at the two-column frame: the
+// reference's card with the screen's title as the chip and its own description as
+// the caption, the two-line answers inside it with the cursor's row filled, and
+// the plan panel beside it. It is the shape the card grammar gives every screen;
+// this is the first wizard question drawn in it.
+func TestOSSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenOSSelect
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Select Your Operating System"))
+}
+
+// TestTerminalSelectGolden pins the terminal question in the reference grammar: the
+// screen's own title as the card's chip, its description as the caption, the rule
+// under the pair and every answer as an icon/title/subtitle/chevron row, with the
+// shortcut row behind the card's own divider. The answers, their order and the
+// footer's keys are the screen's, unchanged.
+func TestTerminalSelectGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenTerminalSelect
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Choose Terminal Emulator"))
+}
+
+// TestTerminalSelectWideGolden pins the same question at the two-column frame: the
+// card with its chip and caption, the two-line answers and the divider before the
+// shortcut row, and the plan panel beside it. The left column is narrower than the
+// 80-column body, so the caption that rides the border at the floor is kept inside
+// the card here rather than dropped.
+func TestTerminalSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenTerminalSelect
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Terminal Emulator"))
+}
+
+// TestShellSelectGolden pins the shell question in the reference grammar: the
+// screen's own title as the card's chip, its description kept inside the card
+// (the note names the detected shell and is longer than the border row can hold),
+// the rule under the pair and every answer as an icon/title/subtitle/chevron row,
+// with the shortcut row behind the card's own divider. The answers, their order and
+// the footer's keys are the screen's, unchanged. The cursor is where the screen
+// really opens: the answer the run recorded for the detected shell, which is what
+// the note beside it states.
+func TestShellSelectGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.Shell = "zsh"
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenShellSelect
+	m.Cursor = m.questionValueIndex(ScreenShellSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Choose Your Shell"))
+}
+
+// TestShellSelectWideGolden pins the same question at the two-column frame: the
+// card with its chip and the note inside it, the two-line answers and the divider
+// before the shortcut row, and the plan panel beside it.
+func TestShellSelectWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.SystemInfo = goldenSystemInfo()
+	m.Choices.Shell = "zsh"
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenShellSelect
+	m.Cursor = m.questionValueIndex(ScreenShellSelect)
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Choose Your Shell"))
+}
+
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
 func TestNavigationFlowE2E(t *testing.T) {
 	m := NewModel()
@@ -1221,6 +1311,30 @@ func TestShellAuditGolden(t *testing.T) {
 // came from, the two rows that are marked beside the ones that are not, and the
 // prose that says what would have to be downloaded or rebuilt again. No scan is
 // run and no machine is read, so the frame is the same on every runner.
+// TestShellAuditWideGolden pins the reference's two-column shell startup: the
+// clock art beside the numbered explanation, the filled measure press with the
+// four plan options, the results beside the recent runs, and the methodology.
+func TestShellAuditWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := shellAuditFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "The shell's startup"))
+}
+
+// TestUpdateCenterWideGolden pins the reference's updates screen: the stats strip,
+// the grouped table with its checkbox and scrollbar, the selected entry's card and
+// the actions card.
+func TestUpdateCenterWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := updateCenterFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Actions"))
+}
+
 func TestDiskCleanerGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := diskCleanerFrameCase(t)
@@ -1228,6 +1342,19 @@ func TestDiskCleanerGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Development caches"))
+}
+
+// TestDiskCleanerWideGolden pins the disk cleaner in the reference grammar: the
+// findings' card at the left with the way back under its rule, and the prose the
+// screen is made of in the card beside it. The framing is the floor's own
+// (TestDiskCleanerGolden); what changes is the grammar the wide frame can hold.
+func TestDiskCleanerWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := diskCleanerFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Development caches"))
 }
 
 // TestTerminalCapabilitiesGolden pins the capability report: every answer with
@@ -1243,6 +1370,18 @@ func TestTerminalCapabilitiesGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Terminal capabilities"))
 }
 
+// TestTerminalCapabilitiesWideGolden pins the capability report in the report
+// shape: a screen whose only row is the way back has no list to walk, so its prose
+// is one card across the composition with the way back under the card's own rule.
+func TestTerminalCapabilitiesWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := terminalCapabilitiesFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Terminal capabilities"))
+}
+
 // TestNetworkDiagnosticsGolden pins the diagnosis screen: the verdict naming the
 // stage that stopped it, one row per check carrying its own status word, and the
 // detail of the step under the cursor with its evidence, its cause and the
@@ -1255,6 +1394,18 @@ func TestNetworkDiagnosticsGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Network diagnostics"))
+}
+
+// TestNetworkDiagnosticsWideGolden pins the diagnosis in the reference grammar:
+// the checks in a card with their own status marks in the gutter, and the step
+// under the cursor with its evidence and its cause in the card beside it.
+func TestNetworkDiagnosticsWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := networkDiagnosticsFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Network diagnostics"))
 }
 
 // TestPortManagerGolden pins the port manager: the scope line, the filter and
@@ -1297,6 +1448,20 @@ func TestDoctorGolden(t *testing.T) {
 	m.Animating = false
 
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Development environment"))
+}
+
+// TestDoctorWideGolden pins the doctor in the reference grammar: the findings in
+// a card whose chip is the screen's own title and whose rows carry their state in
+// the gutter, the actions and the way back under its rule, and the finding under
+// the cursor with its evidence in the card beside it. The 80x24 frame is pinned
+// by TestDoctorGolden and is unchanged.
+func TestDoctorWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := doctorFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Development environment"))
 }
 
 // TestDoctorFixGolden pins the confirmation screen: the before/after of the one
