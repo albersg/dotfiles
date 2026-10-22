@@ -733,10 +733,16 @@ func (m Model) frameWithPanels(name, vital string, body []string, hints []instal
 	// draws the plan panel reserves it -- the plan is the panel whose rows and the
 	// creature compete for the same frame, and the plan yields rather than the
 	// creature -- so the machine, live and tip panels keep their own placement.
-	sprite := m.companionSprite(inner, m.companionHeightNow())
+	//
+	// The block is measured with the creature's clock ignored (companionBlockRows),
+	// not with the sprite the gate happens to draw: the reserve is a property of the
+	// screen and the terminal, so turning animation on must not change how many rows
+	// the body is centred in. A reserve that followed the gate moved every body on
+	// every framed screen the moment the creature appeared, which is the one thing a
+	// reserved block exists to prevent.
 	reserve := 0
-	if len(sprite) > 0 && panelsOfferPlan(panels) {
-		reserve = len(sprite) + len(summary)
+	if block := m.companionBlockRows(inner); block > 0 && panelsOfferPlan(panels) {
+		reserve = block + len(summary)
 	}
 
 	if l.TwoColumn && len(panels) > 0 {
@@ -3266,10 +3272,7 @@ func (m Model) shellAuditDescription() []string {
 		paragraphs = append(paragraphs, shellAuditAdviceParagraphs(report)...)
 	}
 
-	paragraphs = append(paragraphs, fmt.Sprintf("%s is started the way a terminal starts it -- `%s`, each start bounded by %s -- "+
-		"so the number describes the start you wait through when you open a terminal. The plan runs %d such starts, and "+
-		"the median is the middle one: not an average, and not a single run.",
-		st.Shell, shellAuditPlanCommand(st.Shell, st.Kind, plan.Mode), shellAuditDuration(st.Timeout), plan.Samples))
+	paragraphs = append(paragraphs, shellAuditPlanParagraph(st))
 
 	// The plan and the keys that change it. It is prose rather than rows because of
 	// what a row cannot say: why a warm-up exists, what a clean comparison measures
@@ -3372,8 +3375,7 @@ func (m Model) shellAuditDescription() []string {
 	}
 
 	// The runs behind the median, listed so the number can be reproduced by hand.
-	paragraphs = append(paragraphs, "Every completed start is listed so the number can be reproduced by hand."+
-		shellAuditRunList(st.Samples))
+	paragraphs = append(paragraphs, shellAuditRunListLead+shellAuditRunList(st.Samples))
 
 	if st.Timeouts > 0 {
 		paragraphs = append(paragraphs, fmt.Sprintf("A start killed at %s is left out of the median: a hung start "+
@@ -3384,9 +3386,29 @@ func (m Model) shellAuditDescription() []string {
 		paragraphs = append(paragraphs, fmt.Sprintf("A start that could not be completed (%s) is left out too.", st.Failure))
 	}
 
-	return append(paragraphs, "Nothing here is changed: no startup file is written and no plugin is disabled. A "+
-		"slower function is not by itself a mistake, and the fix belongs in your own configuration, applied by you.")
+	return append(paragraphs, shellAuditReadOnlyPromise)
 }
+
+// shellAuditPlanParagraph is the method the number comes from, in one sentence: the
+// command, the bound every start ran under, how many starts the plan takes and the
+// rule that the median is the middle one. It is a function rather than a line in the
+// compact body because both shapes print it -- the compact body as its first
+// paragraph and the wide frame's Methodology card as its first bullet -- and a
+// measurement explained in two sets of words is a measurement with two methods.
+func shellAuditPlanParagraph(st shellAuditState) string {
+	plan := clampShellAuditPlan(st.Plan)
+	return fmt.Sprintf("%s is started the way a terminal starts it -- `%s`, each start bounded by %s -- "+
+		"so the number describes the start you wait through when you open a terminal. The plan runs %d such starts, and "+
+		"the median is the middle one: not an average, and not a single run.",
+		st.Shell, shellAuditPlanCommand(st.Shell, st.Kind, plan.Mode), shellAuditDuration(st.Timeout), plan.Samples)
+}
+
+// shellAuditReadOnlyPromise is the one thing every shape of this screen promises:
+// the audit reads this machine and writes nothing to it. Both the compact body and
+// the wide frame's Methodology card end with it, so a frame that cuts the method
+// short still says what the screen did not do.
+const shellAuditReadOnlyPromise = "Nothing here is changed: no startup file is written and no plugin is disabled. A " +
+	"slower function is not by itself a mistake, and the fix belongs in your own configuration, applied by you."
 
 // shellAuditAdviceParagraphs renders the recommendations with the measurement each
 // one came from. The kind prefix is part of the sentence on purpose: a reader has
@@ -3410,6 +3432,12 @@ func shellAuditAdviceParagraphs(report shellAuditReport) []string {
 	}
 	return paragraphs
 }
+
+// shellAuditRunListLead is the sentence the run list follows, in both shapes: the
+// compact body prints it before the list and the wide frame's Methodology card
+// prints it as the bullet the list hangs off, so the two cannot describe the same
+// list in two ways.
+const shellAuditRunListLead = "Every completed start is listed so the number can be reproduced by hand."
 
 // shellAuditRunList names every start that finished, in the order it ran, so the
 // median can be checked against the runs it came from.
@@ -3486,6 +3514,17 @@ func shellAuditStatisticsParagraph(st shellAuditState) string {
 // denominator a reader could re-derive. A sentence borrowed from another shell's
 // instrument would describe a measurement that did not happen.
 func shellAuditAttributionParagraph(st shellAuditState) string {
+	blocks := []string{shellAuditAttributionTable(st)}
+	if cut := shellAuditAttributionCut(st); cut != "" {
+		blocks = append(blocks, cut)
+	}
+	blocks = append(blocks, shellAuditAttributionClosing(st.Kind))
+	return strings.Join(blocks, " ")
+}
+
+// shellAuditAttributionTable is the paragraph's first block: the instrument, the
+// order it ranked by, and the named entries themselves.
+func shellAuditAttributionTable(st shellAuditState) string {
 	var b strings.Builder
 	b.WriteString(shellAuditAttributionIntro(st))
 
@@ -3496,12 +3535,25 @@ func shellAuditAttributionParagraph(st shellAuditState) string {
 	for i, fn := range st.Attribution[:shown] {
 		b.WriteString(shellAuditAttributionRow(st.Kind, i+1, fn))
 	}
-	if len(st.Attribution) > shown {
-		fmt.Fprintf(&b, " %d more were %s and are not named here.", len(st.Attribution)-shown,
-			shellAuditAttributionVerb(st.Kind))
-	}
-	b.WriteString(" " + shellAuditAttributionClosing(st.Kind))
 	return b.String()
+}
+
+// shellAuditAttributionCut is the paragraph's second block: the count of rows the
+// instrument reported and this screen does not name, as its own sentence. It is a
+// block rather than a clause so a shape that draws the paragraph in blocks -- the
+// wide frame's Methodology card -- starts it on a line of its own: a declared cut
+// that a wrap splits in half is a cut a reader can miss. The words are the
+// paragraph's, so the two shapes declare the same cut.
+func shellAuditAttributionCut(st shellAuditState) string {
+	shown := len(st.Attribution)
+	if shown > shellAuditNamedFunctions {
+		shown = shellAuditNamedFunctions
+	}
+	if len(st.Attribution) <= shown {
+		return ""
+	}
+	return fmt.Sprintf("%d more were %s and are not named here.", len(st.Attribution)-shown,
+		shellAuditAttributionVerb(st.Kind))
 }
 
 // shellAuditAttributionIntro says which instrument took the attribution and how

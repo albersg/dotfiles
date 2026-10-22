@@ -80,6 +80,14 @@ type Exercise struct {
 }
 
 // ModuleInfo contains display info for a module
+//
+// Icon is the module's own mark in the interface's glyph vocabulary -- a Nerd Font
+// glyph, like the status glyphs, the action icons and the report marks -- and not an
+// emoji: a terminal without an emoji font draws an emoji as a box, which is the rule
+// the trainer's own guard and the installer's screen guard both hold. No renderer
+// draws it today (the trainer's menu row carries the status glyph instead), so it is
+// the module's identity rather than a row: it is kept, and kept in the vocabulary a
+// future row can draw without a rewrite.
 type ModuleInfo struct {
 	ID          ModuleID
 	Name        string
@@ -330,63 +338,63 @@ func GetAllModules() []ModuleInfo {
 		{
 			ID:          ModuleHorizontal,
 			Name:        "Horizontal Motions",
-			Icon:        "🏃",
+			Icon:        "\uf07e", // nf-fa-arrows-h: the motions that move along a line
 			Description: "w, W, e, E, b, B, f, F, t, T, ;, ,, 0, $, ^",
 			BossName:    "The Line Walker",
 		},
 		{
 			ID:          ModuleVertical,
 			Name:        "Vertical Motions",
-			Icon:        "📐",
+			Icon:        "\uf07d", // nf-fa-arrows-v: the motions that move between lines
 			Description: "j, k, gg, G, {, }, H, M, L, ctrl+d/u/f/b",
 			BossName:    "The Code Tower",
 		},
 		{
 			ID:          ModuleTextObjects,
 			Name:        "Text Objects",
-			Icon:        "🎯",
+			Icon:        "\uf125", // nf-fa-crop: the selection a text object names
 			Description: "viw, vaw, vi\", va\", vi{, diw, daw, ci\", di{, yiw, yi\"",
 			BossName:    "The Bracket Demon",
 		},
 		{
 			ID:          ModuleChangeRepeat,
 			Name:        "Change & Repeat",
-			Icon:        "🔁",
+			Icon:        "\uf01e", // nf-fa-repeat: the edit that repeats
 			Description: "d, c, dd, D, C, x, *, #, n, N, gn, cgn, dgn, .",
 			BossName:    "The Clone Army",
 		},
 		{
 			ID:          ModuleSubstitution,
 			Name:        "Substitution",
-			Icon:        "🔄",
+			Icon:        "\uf0ec", // nf-fa-exchange: the substitution
 			Description: "r, R, s, S, ~, gu, gU, J, :s, :%s, flags (g, c, i)",
 			BossName:    "The Transformer",
 		},
 		{
 			ID:          ModuleRegex,
 			Name:        "Regex & Vimgrep",
-			Icon:        "🔍",
+			Icon:        "\uf002", // nf-fa-search: the pattern it searches with
 			Description: "/, ?, n, N, *, #, \\v, :vimgrep, :copen, :cnext",
 			BossName:    "The Pattern Master",
 		},
 		{
 			ID:          ModuleMacros,
 			Name:        "Macros",
-			Icon:        "🎪",
+			Icon:        "\uf085", // nf-fa-cogs: the automaton that replays the keys
 			Description: "qa, q, @a, @@, :normal, :g/pattern/",
 			BossName:    "The Automaton",
 		},
 		{
 			ID:          ModuleEditing,
 			Name:        "Editing & Undo",
-			Icon:        "📝",
+			Icon:        "\uf0e2", // nf-fa-undo: the edit and the undo of it
 			Description: "i, a, I, A, o, O, <Esc>, u, Ctrl-r, dd, yy, p, P, >>, <<, x, D, %, marks",
 			BossName:    "The Historian",
 		},
 		{
 			ID:          ModuleRegisters,
 			Name:        "Registers & Indentation",
-			Icon:        "📋",
+			Icon:        "\uf0ea", // nf-fa-clipboard: the registers and the indent it keeps
 			Description: "yy, yiw, y$, yw, yj, p, P, \"a-\"z, \"0, dd, x, D, >>, <<",
 			BossName:    "The Archivist",
 		},

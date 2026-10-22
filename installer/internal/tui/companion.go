@@ -2714,6 +2714,31 @@ func (m Model) companionSprite(stage, height int) []string {
 	return rows
 }
 
+// companionBlockRows is the rows the creature's block costs a screen, with the
+// clock ignored: the block a still frame must reserve for a sprite it does not
+// draw yet. companionSprite answers nothing while animation is off -- correct for a
+// renderer, wrong for a reservation -- so a frame that asked it for the reserve
+// centred its body in the whole frame and then in the rows above the creature the
+// moment animation started, and every region on the screen moved by half the
+// block. The question here is the one the layout asks: how tall is this screen's
+// block at this terminal? It reads the rung the terminal selected and the art the
+// state draws, exactly as the animated frame will, and measures the model it was
+// given without moving it -- the model is a value, so the probe renders a copy and
+// the frame on screen keeps its own clock, position and gaze.
+func (m Model) companionBlockRows(stage int) int {
+	if rows := m.companionSprite(stage, m.companionHeightNow()); len(rows) > 0 {
+		return len(rows)
+	}
+	if m.Animating {
+		// The gate is open and nothing was drawn: no rung fits this stage, or the art
+		// would overflow its own rung. That screen has no block either way.
+		return 0
+	}
+	animated := m
+	animated.Animating = true
+	return len(animated.companionSprite(stage, animated.companionHeightNow()))
+}
+
 // companionRow is the creature's single row at the one-row height: the ladder's
 // last step, and the row the trainer's screens place. It is the art the companion
 // shipped with, unchanged, so a screen with one spare row draws exactly what it

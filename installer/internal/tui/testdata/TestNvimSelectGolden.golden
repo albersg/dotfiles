@@ -2,7 +2,6 @@
    Setup                                            ▓▓▓▓▓░░░░░ 1/2 · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
                                                                                 
-                                                                                
   ╭─ Neovim Configuration ──── Includes LSP, TreeSitter, and dotfiles config ╮  
   │──────────────────────────────────────────────────────────────────────────│  
   │ ▸ Yes, install Neovim with config                                      › │  
@@ -17,6 +16,7 @@
   │  LazyVim Guide                                                        › │  
   │   How this LazyVim setup works                                           │  
   ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
                                                                                 
                                                                                 
                                                                                 

@@ -170,6 +170,16 @@ func TestGetAllModules_HasRequiredFields(t *testing.T) {
 		if mod.Icon == "" {
 			t.Errorf("Module %s: Icon should not be empty", mod.ID)
 		}
+		// The icon is the interface's own vocabulary, not an emoji: a terminal with
+		// no emoji font draws one as a box. The private use area is where the Nerd
+		// Font glyphs live, so a return to emoji fails here even though no renderer
+		// draws the field today.
+		for _, r := range mod.Icon {
+			if r < 0xE000 || r > 0xF8FF {
+				t.Errorf("Module %s: Icon %q holds %U, which is not a Nerd Font glyph in the private use area",
+					mod.ID, mod.Icon, r)
+			}
+		}
 		if mod.Description == "" {
 			t.Errorf("Module %s: Description should not be empty", mod.ID)
 		}
@@ -185,8 +195,8 @@ func TestGetAllModules_HorizontalIsFirst(t *testing.T) {
 	if modules[0].ID != ModuleHorizontal {
 		t.Errorf("First module should be Horizontal, got %s", modules[0].ID)
 	}
-	if modules[0].Icon != "🏃" {
-		t.Errorf("Horizontal icon should be 🏃, got %s", modules[0].Icon)
+	if modules[0].Icon != "\uf07e" {
+		t.Errorf("Horizontal icon should be nf-fa-arrows-h, got %q", modules[0].Icon)
 	}
 }
 

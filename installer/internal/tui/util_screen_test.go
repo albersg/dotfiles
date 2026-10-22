@@ -1562,6 +1562,85 @@ func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) 
 	}
 }
 
+// TestShellAuditMethodologyDeclaresTheLinesItCouldNotDraw is the other half of the
+// paragraph guard above: the wide frame's Methodology card draws the method and the
+// attribution from the compact body's own words, and where the rows run out it ends
+// with the count of the lines it could not draw rather than a sentence cut in half.
+// The two sizes are the reference's own wide frame and the size the paragraph guard
+// measures, so the test states the relation instead of a number: the same state
+// either fits whole or says how much it kept back, and neither frame is taller than
+// the terminal that asked for it.
+func TestShellAuditMethodologyDeclaresTheLinesItCouldNotDraw(t *testing.T) {
+	tests := []struct {
+		name          string
+		width, height int
+		wantCut       bool
+	}{
+		{"200x60 holds the whole method", 200, 60, false},
+		{"160x50 declares what it kept back", 160, 50, true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			m := installerFrameModel(t, ScreenShellAudit)
+			m.ShellAudit = shellAuditTestState()
+			m.Width, m.Height = tt.width, tt.height
+
+			view := m.View()
+			if rows := renderedRowCount(view); rows > tt.height {
+				t.Errorf("the methodology card drew %d rows at %dx%d, want <= %d: a card taller than its budget is cut by the frame, not by its own count",
+					rows, tt.width, tt.height, tt.height)
+			}
+
+			flat := strings.Join(strings.Fields(ansiEscape.ReplaceAllString(view, "")), " ")
+			hidden, cut := shellAuditCutCount(flat)
+			if cut != tt.wantCut {
+				t.Fatalf("the card declares a cut of %d lines = %v at %dx%d, want %v:\n%s",
+					hidden, cut, tt.width, tt.height, tt.wantCut, view)
+			}
+			if !cut {
+				// Nothing kept back: the attribution's rows and the promise are all there,
+				// which is what makes the silence about a cut honest rather than lucky.
+				for _, want := range []string{"in zprof's own order", "_omz_source",
+					"1 more were profiled and are not named here", "Nothing here is changed"} {
+					if !strings.Contains(flat, want) {
+						t.Errorf("the card declares no cut but does not show %q:\n%s", want, view)
+					}
+				}
+				return
+			}
+			if hidden < 1 {
+				t.Errorf("the card declares a cut of %d lines, which is no cut at all:\n%s", hidden, view)
+			}
+		})
+	}
+}
+
+// shellAuditCutCount reads the count out of a card's declared cut -- the "… and N
+// more" the description, the notice and the methodology card all end with -- and
+// reports whether the screen declared one at all.
+func shellAuditCutCount(flat string) (int, bool) {
+	const marker = "… and "
+	at := strings.Index(flat, marker)
+	if at < 0 {
+		return 0, false
+	}
+	rest := flat[at+len(marker):]
+	digits := 0
+	for digits < len(rest) && rest[digits] >= '0' && rest[digits] <= '9' {
+		digits++
+	}
+	if digits == 0 || !strings.HasPrefix(rest[digits:], " more") {
+		return 0, false
+	}
+	hidden := 0
+	for _, digit := range rest[:digits] {
+		hidden = hidden*10 + int(digit-'0')
+	}
+	return hidden, true
+}
+
 // TestScreenShellAuditSaysWhyNoFunctionIsNamed pins the honest half: when zprof
 // cannot blame anyone the screen says so, names no function at all, and keeps the
 // total -- which is the only number it can stand behind.

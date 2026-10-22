@@ -1091,7 +1091,9 @@ holds it.
   is now centred in the rows between the header and the footer, and on a screen
   whose creature block is reserved (`panelsOfferPlan`) it is centred in the rows
   above that block (`placeBodyAboveCompanion`), so the pet keeps the rows the
-  terminal gave it and the 80x24 floor keeps its five-row shift.
+  terminal gave it and the 80x24 floor keeps its five-row shift. That block is
+  reserved with the creature's clock ignored (L31), so the body is centred in the
+  same rows whether animation is on or off.
 - **Two things had to be true for centring to be safe, and both are fixed.**
   A body that changes height as the cursor walks it moves itself, so: the section
   screens' prose card now holds the rows of its column instead of ending at its
@@ -1642,9 +1644,10 @@ outstanding for the trainer.
   message (`💀`, `⏰`, `🔒`, `🎉`, `🔁`, `🔄`, `✨`). They are Nerd Font glyphs
   (`\uf017`, `\uf021`, `\uf071`, `\uf0e2`, `\uf0eb`) or plain marks (`★`, `◆`,
   `✗`) now, all one cell, so a terminal without an emoji font draws the line. The
-  module `Icon` fields in `trainer/types.go` still hold emoji; no renderer draws
-  them (the menu has drawn the status glyph instead since the status-word slice), and
-  they are domain data, so the clone stays untouched. `TestNoInstallerScreenDrawsAnEmojiBox`
+  module `Icon` fields in `trainer/types.go` still held emoji at this slice; no
+  renderer draws them (the menu has drawn the status glyph instead since the
+  status-word slice), and they are domain data, so the clone stayed untouched here.
+  They are Nerd Font glyphs now (L31). `TestNoInstallerScreenDrawsAnEmojiBox`
   no longer excludes the trainer, so the class rule now covers all 96 screens.
 
 Guards (`trainer_cards_test.go`): the six screens draw the grammar's borders, rule
@@ -1669,3 +1672,68 @@ Not taken: the compact bodies still draw chips and guttered blocks rather than c
 boss-result screens have no two-column shape (they are one card across the
 composition), so their 80x24 layout and their 160x50 card are the same shape at two
 measures.
+
+L31. The three issues this branch still carried, all of them older than the last
+slices and none of them inside one. Each is closed with the guard that already
+measured it, not with a guard that was relaxed.
+
+- **The still frame reserves the creature's block.** `frameWithPanels` asked
+  `companionSprite` for the rows to reserve, and `companionSprite` answers nothing
+  while `Animating` is false -- correct for a renderer, wrong for a reservation. So
+  the still frame centred the body in every row between the rules and the animated
+  one centred it in the rows above the creature: turning the gate on moved
+  `MainMenu` and the five pickers by half the block (two rows at 80x24), which is
+  the one thing a reserved block exists to prevent. The reserve is now measured by
+  `companionBlockRows`, which reads the rung the terminal selected and the art the
+  state draws and ignores the gate: it probes a copy of the model with `Animating`
+  set, so the frame on screen keeps its clock, position and gaze. A screen where the
+  block genuinely cannot be drawn -- a stage too narrow, art that overflows its rung
+  -- still reserves nothing, in both frames. The guard is the one that failed:
+  `TestScreensRenderIdenticallyWithAnimationOnAndOffExceptTheCompanionRow`, unchanged
+  in what it demands (the frame neither gains nor loses a row, and no body row may
+  differ), now green at all three measured sizes for all nineteen screens. Its
+  sibling `TestCompanionTicksChangeOnlyItsOwnRows` and the whole `Anim` set stay
+  green. The still frame of every framed screen that reserves moved up by half the
+  block, which is the fix: goldens regenerated are the seven wizard pickers and the
+  main menu in both widths, plus `TestMainMenuTruecolorGolden`
+  (`TestMainMenuGoldenIsIndependentOfTheWorkingDirectory` reads the same file).
+- **The Methodology card carries the method and the attribution.** The wide shell
+  audit's card held five generic bullets -- command, median rule, keys, promise --
+  and the attribution, the plan count and the run list existed only in the compact
+  body, so at 200x60 `TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution`
+  could not find them. The cut was not the card's budget losing content: the card was
+  drawn whole, eight rows, with ten rows of the frame unused, and the prose was
+  never in it. The card now draws the compact body's own paragraphs for the method
+  (the plan, in the words of `shellAuditPlanParagraph`), its attribution (the
+  instrument's rows, the declared count of rows it did not name, what the numbers
+  mean), the run list under `shellAuditRunListLead` and the read-only promise
+  (`shellAuditReadOnlyPromise`); the recommendations still come first when the user
+  opened them. The compact body is byte-identical -- its paragraphs became those same
+  two functions -- so `TestShellAuditGolden` did not move. The card is budgeted by
+  the rows the bands above it left (`cardChromeRows` off the budget) and a card
+  taller than that ends with the description's own declared cut, `… and N more`,
+  rather than being sliced by the frame's `body[:budget]`. At 200x60 the card fits
+  whole; at 160x50 it declares nine lines it kept back. The attribution is drawn in
+  blocks (`shellAuditAttributionTable`, `shellAuditAttributionCut`,
+  `shellAuditAttributionClosing`) so the declared cut starts its own line: a clause a
+  wrap splits in half is a cut a reader can miss, and the paragraph's words are
+  unchanged. Guards: the paragraph guard above, plus the new
+  `TestShellAuditMethodologyDeclaresTheLinesItCouldNotDraw` (the same state either
+  fits whole, with its attribution and its promise, or declares a positive count, and
+  neither frame is taller than its terminal).
+  `TestShellAuditWideGolden` was regenerated for the card's new rows.
+- **The module icons left the emoji vocabulary.** `ModuleInfo.Icon` is the module's
+  identity, not a row -- the trainer's menu has drawn the status glyph since the
+  status-word slice -- but it still held emoji, which a terminal without an emoji
+  font draws as a box. The field, its nine assignments and every other datum stay;
+  the glyph is the interface's own now, one Nerd Font cell each, commented at the
+  assignment: `nf-fa-arrows-h`/`-v` for the two motion modules, `nf-fa-crop` for text
+  objects, `nf-fa-repeat` for change & repeat, `nf-fa-exchange` for substitution,
+  `nf-fa-search` for regex, `nf-fa-cogs` for macros, `nf-fa-undo` for editing and
+  `nf-fa-clipboard` for registers. `TestGetAllModules_HasRequiredFields` now holds
+  every icon to the private use area, so a return to emoji fails there even though no
+  renderer draws the field; `TestGetAllModules_HorizontalIsFirst` pins the first
+  module's glyph.
+
+Validation was the short loop the three issues name: the three guards, the golden
+set, the `Anim`, `Companion` and shell-audit sets. No full suite, no preflight.

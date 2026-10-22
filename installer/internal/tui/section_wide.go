@@ -349,7 +349,9 @@ func (m Model) sectionWideReportCard(paragraphs []string, screenNotice string, t
 }
 
 // cardChromeRows is what a card spends before its body: its top border, the rule
-// under the chip and its bottom border.
+// under the chip and its bottom border. A caller that hands a card a row budget
+// instead of a body -- one whose paragraphs must be cut to the rows the frame has
+// left -- takes these off first, so the card it asks for is the card that fits.
 const cardChromeRows = 3
 
 // sectionEntryWindow is the window of entries to draw, measured in the lines each

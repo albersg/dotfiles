@@ -110,8 +110,13 @@ func (m Model) renderShellAuditWide(l layout, budget int) string {
 	body = append(body, sideBySide(results, resultsWidth, runs, runsWidth, layoutGutter)...)
 	body = append(body, "")
 
+	// The Methodology card takes the rows the bands above it left, so it is as tall
+	// as the frame allows and never taller: the card's own borders and the rule under
+	// its chip are the rows that are not body (cardChromeRows), and the body is cut
+	// by its own row count with a declared total rather than by the frame's slice.
+	methodRows := budget - len(body) - cardChromeRows
 	body = append(body, card("Methodology", "How the measurement works", composition,
-		m.shellAuditMethodologyBody(cardContentWidth(composition), st))...)
+		m.shellAuditMethodologyBody(cardContentWidth(composition), methodRows, st))...)
 
 	if len(body) > budget {
 		body = body[:budget]
@@ -413,49 +418,79 @@ func (m Model) shellAuditRecentRunsBody(width int, st shellAuditState) []string 
 	return out
 }
 
-// shellAuditMethodologyBody is the Methodology card: the command, the bound, the
-// median rule and the keys, all read from the plan and the state. When the user
-// opened the recommendations they come first, so a short frame cuts the method
-// rather than the answer they asked for.
-func (m Model) shellAuditMethodologyBody(width int, st shellAuditState) []string {
-	plan := clampShellAuditPlan(st.Plan)
-	var bullets []string
+// shellAuditMethodologyBody is the Methodology card: the method the number comes
+// from and the attribution the instrument returned, drawn from the same paragraphs
+// the compact body draws -- the plan, what zprof (or bash, or fish) blamed, the
+// starts that support the median, and the promise that nothing was changed. It is
+// the same words in both shapes for the same reason the plan paragraph is a
+// function: one measurement, one explanation. The recommendations come first when
+// the user opened them, so a short card cuts the method rather than the answer they
+// asked for, exactly as the compact body orders the two.
+//
+// The card carries the method and the attribution, not the compact body's whole
+// prose: the wizard's plan, the statistics, the history and the comparison are the
+// floor's shape, and the results and recent-runs cards beside this one already draw
+// the numbers those paragraphs describe. What the card does carry, it carries whole
+// -- the attribution's own rows, the count of rows the instrument reported and this
+// screen does not name, and the promise -- in blocks, so the declared cut is a
+// sentence of its own rather than a clause a wrap can split.
+//
+// The card is budgeted by the rows the bands above it left, and a card taller than
+// that budget ends with the count of the lines it could not draw -- the rule the
+// description and the notice follow -- rather than losing the attribution silently.
+// The paragraphs are ordered so the cut falls on the last line of the promise: the
+// method, the instrument's own rows and the declared number of rows it reported all
+// come before it.
+func (m Model) shellAuditMethodologyBody(width, rows int, st shellAuditState) []string {
+	if rows < 1 {
+		return nil
+	}
 
+	var paragraphs []string
 	if st.AdviceOpen {
-		for _, paragraph := range shellAuditAdviceParagraphs(shellAuditReportOf(st)) {
-			bullets = append(bullets, paragraph)
+		paragraphs = append(paragraphs, shellAuditAdviceParagraphs(shellAuditReportOf(st))...)
+	}
+
+	paragraphs = append(paragraphs, shellAuditPlanParagraph(st))
+	if len(st.Attribution) == 0 {
+		if st.AttributionReason != "" {
+			paragraphs = append(paragraphs, st.AttributionReason)
 		}
-		bullets = append(bullets, "")
+	} else {
+		// The attribution is drawn in its own blocks -- the instrument's rows, the
+		// count of rows it reported and this screen does not name, and what the
+		// numbers mean -- so the declared cut starts on its own line instead of
+		// falling half-way through a wrapped clause.
+		paragraphs = append(paragraphs, shellAuditAttributionTable(st))
+		if cut := shellAuditAttributionCut(st); cut != "" {
+			paragraphs = append(paragraphs, cut)
+		}
+		paragraphs = append(paragraphs, shellAuditAttributionClosing(st.Kind))
 	}
-
-	command := shellAuditPlanCommand(st.Shell, st.Kind, plan.Mode)
-	timeout := shellAuditDuration(st.Timeout)
-	if st.Timeout <= 0 {
-		timeout = "its own bound"
+	if runList := shellAuditRunList(st.Samples); runList != "" {
+		paragraphs = append(paragraphs,
+			shellAuditRunListLead+runList)
 	}
-	bullets = append(bullets,
-		fmt.Sprintf("Runs `%s` multiple times, each bounded by %s.", command, timeout),
-		"The median is used as the result (more stable than a single run).",
-		"Use [m] for the start, [w] to set warm-up runs, or [b] for a clean comparison (minimal config).",
-		"Nothing here is changed: no startup file is written and no plugin is disabled.",
-		"← Back returns to Utilities; the footer spells the key.",
-	)
+	paragraphs = append(paragraphs, shellAuditReadOnlyPromise)
 
-	var body []string
-	for _, bullet := range bullets {
-		if bullet == "" {
-			body = append(body, "")
+	var lines []string
+	for _, paragraph := range paragraphs {
+		if paragraph == "" {
 			continue
 		}
-		for i, line := range wrapText(bullet, max(1, width-2), 0) {
+		for i, line := range wrapText(paragraph, max(1, width-2), 0) {
 			if i == 0 {
-				body = append(body, AccentKeyStyle.Render("• ")+InkStyle.Render(line))
+				lines = append(lines, AccentKeyStyle.Render("• ")+InkStyle.Render(line))
 				continue
 			}
-			body = append(body, "  "+InkStyle.Render(line))
+			lines = append(lines, "  "+InkStyle.Render(line))
 		}
 	}
-	return body
+	if len(lines) > rows {
+		hidden := len(lines) - rows + 1
+		lines = append(lines[:rows-1], MutedStyle.Render(fmt.Sprintf("… and %d more", hidden)))
+	}
+	return lines
 }
 
 // shellAuditFooterStatus is the footer's middle line: what the run is measuring,
