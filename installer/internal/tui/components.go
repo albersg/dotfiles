@@ -55,6 +55,14 @@ func cardContentWidth(width int) int {
 	return max(1, width-panelFrame-2*grammarCardPad)
 }
 
+// cardGroup is one section of a card: the rules the card sets off with a titled
+// divider, and the lines it holds. A card has at least one group; a group with no
+// title has no divider above it.
+type cardGroup struct {
+	Title string
+	Lines []string
+}
+
 // card wraps body rows in the reference grammar's card: a filled chip set into
 // the top border, a right-aligned muted caption on the same row, a rule under the
 // pair and the body. A card with no title draws a plain rounded box; a card with
@@ -62,6 +70,14 @@ func cardContentWidth(width int) int {
 // card, borders included, and every row is exactly that wide, so two cards beside
 // each other line up.
 func card(title, caption string, width int, body []string) []string {
+	return cardGroups(title, caption, width, []cardGroup{{Lines: body}})
+}
+
+// cardGroups is card with the body split into the sections a titled divider sets
+// off. It is the same object as card -- the chip, the caption, the rule under the
+// pair and the edges are drawn once -- so a menu that groups its rows and a card
+// that does not are one card shape with and without dividers.
+func cardGroups(title, caption string, width int, groups []cardGroup) []string {
 	if width < panelFrame+2*grammarCardPad+2 {
 		width = panelFrame + 2*grammarCardPad + 2
 	}
@@ -105,17 +121,34 @@ func card(title, caption string, width int, body []string) []string {
 	}
 
 	content := inner - 2*grammarCardPad
-	out := make([]string, 0, len(body)+3)
+	row := func(s string) string {
+		return edge("│") + strings.Repeat(" ", grammarCardPad) +
+			padRight(lipgloss.NewStyle().MaxWidth(content).Render(s), content) +
+			strings.Repeat(" ", grammarCardPad) + edge("│")
+	}
+
+	out := make([]string, 0, len(groups)*2+3)
 	out = append(out, top)
 	out = append(out, edge("│")+RuleStyle.Render(strings.Repeat("─", inner))+edge("│"))
-	for _, line := range body {
-		// A body row may itself be several physical rows (a bordered badge or a
-		// wrapped paragraph), so each physical line is padded and edged on its own
-		// rather than letting an embedded newline escape the card.
-		for _, physical := range strings.Split(line, "\n") {
-			out = append(out, edge("│")+strings.Repeat(" ", grammarCardPad)+
-				padRight(lipgloss.NewStyle().MaxWidth(content).Render(physical), content)+
-				strings.Repeat(" ", grammarCardPad)+edge("│"))
+	for at, group := range groups {
+		if at > 0 {
+			// The divider carries the group's own name at the left edge and runs on
+			// to the closing border, so a section reads as part of the same card.
+			label := " " + TableHeaderStyle.Render(group.Title) + " "
+			dash := inner - lipgloss.Width(label)
+			if group.Title == "" || dash < 1 {
+				label = ""
+				dash = inner
+			}
+			out = append(out, edge("├─")+label+edge(strings.Repeat("─", max(0, dash-1))+"┤"))
+		}
+		for _, line := range group.Lines {
+			// A body row may itself be several physical rows (a bordered badge or a
+			// wrapped paragraph), so each physical line is padded and edged on its own
+			// rather than letting an embedded newline escape the card.
+			for _, physical := range strings.Split(line, "\n") {
+				out = append(out, row(physical))
+			}
 		}
 	}
 	out = append(out, edge("╰"+strings.Repeat("─", inner)+"╯"))
