@@ -46,5 +46,14 @@ Wait+Screen /Choose a theme for your installer/
 Sleep 700ms
 Screenshot "captures/80x24/05-theme.png"
 
+Down
+Sleep 700ms
+Screenshot "captures/80x24/06-theme-alt.png"
+
+Enter
+Wait+Screen /Clean Dev Caches/
+Sleep 700ms
+Screenshot "captures/80x24/07-utilities-alt.png"
+
 Escape
 Wait+Screen /Clean Dev Caches/
