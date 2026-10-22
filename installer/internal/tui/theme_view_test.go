@@ -49,12 +49,11 @@ func TestThemePickerDrawsTheMockupsGridWhereTheFrameHoldsIt(t *testing.T) {
 		t.Fatalf("the wide selector draws no card at all:\n%s", plain)
 	}
 	// A grid row's boxes share one line, so the first box line carries two of them.
+	// The palette board is a card of its own, so the first line carrying a corner
+	// is not necessarily a grid row; the widest row of boxes is the grid's.
 	boxes := 0
 	for _, line := range strings.Split(plain, "\n") {
-		if strings.Contains(line, "╭") {
-			boxes = strings.Count(line, "╭")
-			break
-		}
+		boxes = max(boxes, strings.Count(line, "╭"))
 	}
 	if boxes != 2 {
 		t.Errorf("the wide selector opens %d card(s) on its first grid row, want the mockup's 2", boxes)
