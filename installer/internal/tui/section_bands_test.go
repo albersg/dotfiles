@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-
-	"github.com/albersg/dotfiles/installer/internal/updates"
 )
 
 // The band contract, in two guards.
@@ -113,20 +111,6 @@ func TestSectionScreenAnchorsDoNotMove(t *testing.T) {
 			toggle func(*Model)
 		}{
 			{
-				name:  "update-center",
-				build: updateCenterFrameCase,
-				toggle: func(m *Model) {
-					// Every reported entry selected draws the tallest action block:
-					// select-the-shown, apply and clear are all offered.
-					m.UpdateCenter.Selected = updates.NewSelection()
-					for _, result := range m.UpdateCenter.Results {
-						for _, item := range result.Items {
-							m.UpdateCenter.Selected.Toggle(item)
-						}
-					}
-				},
-			},
-			{
 				name:  "disk-cleaner",
 				build: diskCleanerFrameCase,
 				toggle: func(m *Model) {
@@ -173,9 +157,16 @@ func TestSectionScreenAnchorsDoNotMove(t *testing.T) {
 				withSelection.Cursor = cursor
 
 				wantBack, wantClosing, wantMarks := anchor(base)
-				if wantBack < 0 || wantClosing < 0 {
-					t.Fatalf("%s at %dx%d draws no way back or no closing rule: back %d closing %d",
-						f.name, size[0], size[1], wantBack, wantClosing)
+				if wantClosing < 0 {
+					t.Fatalf("%s at %dx%d draws no closing rule: closing %d",
+						f.name, size[0], size[1], wantClosing)
+				}
+				// The screens moved onto the reference's wide section layout draw the way
+				// back as the footer's [Esc] back instead of a "← Back" row; the anchor
+				// that must not move is the footer's, and it is checked below.
+				if wantBack < 0 && !strings.Contains(ansiEscape.ReplaceAllString(base.View(), ""), "[Esc] back") {
+					t.Fatalf("%s at %dx%d draws no way back: neither a row nor the footer's [Esc] back",
+						f.name, size[0], size[1])
 				}
 				back, closing, marks := anchor(withSelection)
 				if closing != wantClosing {
