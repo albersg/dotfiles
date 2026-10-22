@@ -265,7 +265,7 @@ func (m Model) selectedFinding() (wslFinding, bool) {
 // description, a list, a notice and the legend -- so it inherits the budget arithmetic that keeps a
 // narrow terminal from pushing the footer off screen.
 func (m Model) renderWSLAdvisor() string {
-	return m.renderThemeScreen(m.wslAdvisorDescription(), m.WSLAdvisor.Notice, m.wslAdvisorHints())
+	return m.renderThemeScreen(Model.wslAdvisorDescription, m.WSLAdvisor.Notice, m.wslAdvisorHints())
 }
 
 // wslAdvisorHints is the report's footer: the two move keys, the Enter that opens a screen or a

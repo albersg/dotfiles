@@ -378,6 +378,55 @@ func (m Model) updateCenterFocusedItem() (updates.Item, bool) {
 	return m.updateCenterItemForRow(row)
 }
 
+// updateCenterDetailItem is the entry the screen describes: the one under the
+// cursor, or -- when the cursor is on a row that is not a package -- the nearest
+// package above it, and below it when it is on none above. The cursor only moves
+// between packages (updateCenterStep), so this is the floor under the states that
+// put it elsewhere: a filter that shrinks the list, a selection that adds an
+// action row above the way back. The detail speaks for the entry nearest the
+// cursor instead of going blank and taking the composition with it.
+func (m Model) updateCenterDetailItem() (updates.Item, bool) {
+	if item, ok := m.updateCenterFocusedItem(); ok {
+		return item, true
+	}
+	options := m.GetCurrentOptions()
+	for i := min(m.Cursor, len(options)) - 1; i >= 0; i-- {
+		if item, ok := m.updateCenterItemAt(options, i); ok {
+			return item, true
+		}
+	}
+	for i := max(0, m.Cursor); i < len(options); i++ {
+		if item, ok := m.updateCenterItemAt(options, i); ok {
+			return item, true
+		}
+	}
+	return updates.Item{}, false
+}
+
+// updateCenterItemAt resolves one option row to its entry, or reports that the
+// row is not one.
+func (m Model) updateCenterItemAt(options []string, index int) (updates.Item, bool) {
+	if index < 0 || index >= len(options) || !isUpdateCenterItemRow(options[index]) {
+		return updates.Item{}, false
+	}
+	return m.updateCenterItemForRow(options[index])
+}
+
+// updateCenterStep is the row the cursor moves to: the next package row in the
+// direction pressed, or where it is when the list has none that way. The cursor
+// rests only on rows the detail can speak for, so walking the list can never park
+// it on a group rule, an action row or the way back -- the actions carry their own
+// letters and the way back is Esc, so nothing becomes unreachable.
+func (m Model) updateCenterStep(cursor, delta int) int {
+	options := m.GetCurrentOptions()
+	for i := cursor + delta; i >= 0 && i < len(options); i += delta {
+		if isUpdateCenterItemRow(options[i]) {
+			return i
+		}
+	}
+	return cursor
+}
+
 // updateCenterItemFacts is one entry's complete record, one labelled fact per
 // line: what it is, who owns it, both versions in full, why it is held and what
 // the manager said about it. The row is a table cell and cuts; this is where the
@@ -842,10 +891,10 @@ func (m Model) updateCenterDescription() []string {
 		return append([]string{"Reads what this machine's managers say is out of date and moves only what you select; nothing changes until a selection is confirmed."}, paragraphs...)
 	}
 
-	// The entry under the cursor comes FIRST: it is the one thing the reader is
+	// The entry nearest the cursor comes FIRST: it is the one thing the reader is
 	// deciding about, and at the floor the detail band is four rows -- a generic
 	// introduction would spend them before a single fact arrived.
-	if item, ok := m.updateCenterFocusedItem(); ok {
+	if item, ok := m.updateCenterDetailItem(); ok {
 		paragraphs = append(paragraphs, m.updateCenterItemFacts(item)...)
 	}
 	paragraphs = append(paragraphs, "Reads what this machine's managers say is out of date and moves only what you select; nothing changes until a selection is confirmed.")
@@ -1190,7 +1239,7 @@ func (m Model) renderUpdateCenter() string {
 	if m.updateCenterWide(l, budget) {
 		return m.renderUpdateCenterWide(l, budget)
 	}
-	return m.renderThemeScreen(m.updateCenterDescription(), m.UpdateCenter.Notice, hints)
+	return m.renderThemeScreen(Model.updateCenterDescription, m.UpdateCenter.Notice, hints)
 }
 
 // updateCenterHints is the footer of the state the screen is in. It names the
@@ -1325,19 +1374,9 @@ func (m Model) handleUpdateCenterKeys(key string) (tea.Model, tea.Cmd) {
 		state.LeftOut = nil
 		m.Cursor = 0
 	case "up", "k":
-		if m.Cursor > 0 {
-			m.Cursor--
-			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor > 0 {
-				m.Cursor--
-			}
-		}
+		m.Cursor = m.updateCenterStep(m.Cursor, -1)
 	case "down", "j":
-		if m.Cursor < len(options)-1 {
-			m.Cursor++
-			if strings.HasPrefix(options[m.Cursor], menuSeparatorPrefix) && m.Cursor < len(options)-1 {
-				m.Cursor++
-			}
-		}
+		m.Cursor = m.updateCenterStep(m.Cursor, 1)
 	case " ":
 		// Space is the switch, and only the switch: on a command row, a
 		// separator or the way back it does nothing rather than becoming a

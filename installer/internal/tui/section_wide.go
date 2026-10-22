@@ -100,8 +100,9 @@ func (m Model) sectionWide(l layout, hints []installerHint) bool {
 // renderSectionWide draws one section screen in the reference's grammar: the
 // list's card at the left, the prose's card at the right, and the frame still
 // owning the header, the status rule, the footer and the creature's rows.
-func (m Model) renderSectionWide(l layout, paragraphs []string, screenNotice string, hints []installerHint) string {
+func (m Model) renderSectionWide(l layout, description func(Model) []string, screenNotice string, hints []installerHint) string {
 	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, hints))
+	paragraphs := description(m)
 	options := m.GetCurrentOptions()
 	tail := pinnedTailLen(options)
 	entries := options[:len(options)-tail]
@@ -126,7 +127,7 @@ func (m Model) renderSectionWide(l layout, paragraphs []string, screenNotice str
 	} else {
 		left, first, last := m.sectionWideListCard(entries, tailRows, l.Left, budget)
 		start, end = first, last
-		right := m.sectionWideDetailCard(paragraphs, screenNotice, l.Right, budget)
+		right := m.sectionWideDetailCard(description, screenNotice, l.Right, budget)
 		body = composeColumns(left, right, l)
 	}
 
@@ -236,14 +237,16 @@ func (m Model) sectionWideListCard(entries, tail []string, width, budget int) ([
 // iconFactLines -- and its prose everywhere else, in the same words the compact
 // body draws.
 //
-// The card holds the rows the column was given, not the rows the current prose
-// happens to need. A section screen's prose follows the cursor -- the disk
-// cleaner puts the finding under it first -- so a card measured from the current
-// row would change the composition's height as the cursor walks, and the centred
-// body would climb and fall with it. Holding the column's rows is also what the
-// reference draws: its cards run to the bottom of the body, not to the end of
-// their text.
-func (m Model) sectionWideDetailCard(paragraphs []string, screenNotice string, width, budget int) []string {
+// The card is as tall as the tallest reading the cursor can reach and no taller.
+// A section screen's detail follows the cursor -- the disk cleaner puts the
+// finding under it first -- so a card measured from the current row would change
+// the composition's height as the cursor walks and the centred body would climb
+// and fall with it. It was padded to the column's whole row budget for that
+// reason, which left a short reading inside a card as tall as the frame; the
+// height is now the maximum its content needs across the rows the cursor can rest
+// on, so it holds still while the cursor moves and a short reading leaves a short
+// card. The column the frame gave it is still the ceiling.
+func (m Model) sectionWideDetailCard(description func(Model) []string, screenNotice string, width, budget int) []string {
 	content := cardContentWidth(width)
 
 	var notice []string
@@ -255,20 +258,23 @@ func (m Model) sectionWideDetailCard(paragraphs []string, screenNotice string, w
 		fixed += grammarGap + len(notice)
 	}
 
-	// A screen whose detail is a list of facts draws them as the grammar's rows
-	// (facts_cards.go): the label that names the fact at its fixed column and the
-	// value wrapped beside it, so the card and the compact body are one source. The
-	// prose path below stays for every screen that still writes its detail as
-	// sentences.
-	body := []string{}
-	if groups, ok := m.sectionScreenGroups(content); ok {
-		for _, group := range groups {
-			body = append(body, group.Lines...)
-		}
-	} else {
-		body = append(body, inkParagraphs(wrapSectionParagraphs(paragraphs, content))...)
+	// The tallest reading any row the cursor can rest on draws. The card is that
+	// tall whatever the row under the cursor needs, so the composition is one
+	// height at every cursor position; the frame's rows are the ceiling, and a
+	// detail longer than the column is cut with the usual marker.
+	limit := max(1, budget-fixed)
+	room := 1
+	for cursor := range m.GetCurrentOptions() {
+		probe := m
+		probe.Cursor = cursor
+		room = max(room, min(limit, len(probe.sectionDetailBody(description(probe), content))))
 	}
-	body = clipLines(body, max(1, budget-fixed), content)
+
+	body := m.sectionDetailBody(description(m), content)
+	body = clipLines(body, room, content)
+	if len(body) > 0 {
+		body = padRows(body, room)
+	}
 	if len(notice) > 0 {
 		if len(body) > 0 {
 			body = append(body, "")
@@ -278,8 +284,23 @@ func (m Model) sectionWideDetailCard(paragraphs []string, screenNotice string, w
 	if len(body) == 0 {
 		return nil
 	}
-	body = padRows(body, max(len(body), budget-cardChromeRows))
 	return card(m.sectionPaneTitle(), "", width, body)
+}
+
+// sectionDetailBody is the detail one cursor position draws: a screen whose
+// detail is a list of facts draws them as the grammar's rows (facts_cards.go)
+// -- the label that names the fact at its fixed column and the value wrapped
+// beside it, so the card and the compact body are one source -- and every screen
+// that still writes its detail as sentences draws its prose.
+func (m Model) sectionDetailBody(paragraphs []string, content int) []string {
+	if groups, ok := m.sectionScreenGroups(content); ok {
+		var body []string
+		for _, group := range groups {
+			body = append(body, group.Lines...)
+		}
+		return body
+	}
+	return inkParagraphs(wrapSectionParagraphs(paragraphs, content))
 }
 
 // sectionWideReportCard draws a report -- a screen with prose and no list to walk

@@ -205,3 +205,55 @@ func TestPortCardsKeepTheScreensOwnKeys(t *testing.T) {
 		})
 	}
 }
+
+// TestPortFactsCardHoldsItsTallestReading is the guard for the padded facts
+// column: it used to be as tall as the column the frame gave it, so a reading with
+// three sockets and four facts left a card running to the footer. It is the
+// tallest reading the cursor can reach now, measured with the facts open, so
+// walking the reading -- and the press that opens the detail -- cannot resize the
+// column they are looking at.
+func TestPortFactsCardHoldsItsTallestReading(t *testing.T) {
+	base := portManagerFrameCase(t)
+	base.Width, base.Height = 160, 50
+	base.Animating = false
+
+	measure := func(m Model) (span [2]int, body int, card []string) {
+		t.Helper()
+		rows := strings.Split(ansiEscape.ReplaceAllString(m.View(), ""), "\n")
+		rule, footer := frameBodyEnds(rows)
+		if rule < 0 || footer < 0 {
+			t.Fatalf("the manager does not draw the frame's own rule and footer:\n%s", strings.Join(rows, "\n"))
+		}
+		bodyRows := rows[rule+1 : footer]
+		columns := cardColumns(bodyRows)
+		if len(columns) < 2 {
+			t.Fatalf("the manager draws one card at 160x50, want the reading and its facts beside it:\n%s", strings.Join(rows, "\n"))
+		}
+		spans := cardSpansInColumn(bodyRows, columns[len(columns)-1])
+		if len(spans) != 1 {
+			t.Fatalf("the manager draws %d cards in its facts column:\n%s", len(spans), strings.Join(rows, "\n"))
+		}
+		return spans[0], len(bodyRows), bodyRows[spans[0][0] : spans[0][1]+1]
+	}
+
+	want, body, card := measure(base)
+	if want[1]-want[0]+1 >= body {
+		t.Errorf("the facts card draws %d rows in a %d-row body: a short reading still fills the column", want[1]-want[0]+1, body)
+	}
+	if cardTrailingBlanks(card) != 0 {
+		t.Errorf("the facts card keeps %d blank rows under its last fact, so it is padded rather than measured", cardTrailingBlanks(card))
+	}
+
+	for cursor := 0; cursor < len(base.portVisibleListeners()); cursor++ {
+		moved := base
+		moved.Ports.Cursor = cursor
+		for _, open := range []bool{true, false} {
+			moved.Ports.Detail = open
+			got, _, _ := measure(moved)
+			if got != want {
+				t.Errorf("with the detail open=%v and the cursor on socket %d the facts card sits on rows %d-%d, where it sat on %d-%d: opening the detail or walking the reading moves the composition",
+					open, cursor, got[0], got[1], want[0], want[1])
+			}
+		}
+	}
+}

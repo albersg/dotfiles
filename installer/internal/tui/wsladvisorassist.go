@@ -137,7 +137,7 @@ func wslMoveCursor(rows []wslActionRow, cursor int, delta int) int {
 // renderWSLBenchmark draws the measurement screen. The footer names the letter that measures and the
 // Enter that opens the way back; Space is not offered, because nothing on this screen is a switch.
 func (m Model) renderWSLBenchmark() string {
-	return m.renderThemeScreen(m.wslBenchmarkDescription(), m.wslBenchmarkNotice(), m.wslBenchmarkHints())
+	return m.renderThemeScreen(Model.wslBenchmarkDescription, m.wslBenchmarkNotice(), m.wslBenchmarkHints())
 }
 
 // wslBenchmarkHints is the measurement screen's footer: the two move keys, the Enter that opens the
@@ -333,7 +333,7 @@ func (m Model) handleWSLBenchmarkKeys(key string) (tea.Model, tea.Cmd) {
 // the phase, because the keys this screen accepts are: while a copy runs, Escape stops it rather than
 // leaving the question, and the footer says so instead of offering the way back it is not taking.
 func (m Model) renderWSLMigration() string {
-	return m.renderThemeScreen(m.wslMigrationDescription(), m.wslMigrationNotice(), m.wslMigrationHints())
+	return m.renderThemeScreen(Model.wslMigrationDescription, m.wslMigrationNotice(), m.wslMigrationHints())
 }
 
 // wslMigrationHints is the footer for the question on screen. It names the letters the rows of that

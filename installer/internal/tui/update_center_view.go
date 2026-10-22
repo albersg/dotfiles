@@ -31,6 +31,14 @@ const (
 	// not the window draws them, so reaching the first or the last row cannot
 	// change the card's height and move the frame around it.
 	updateTableNoteRows = 2
+
+	// updateTableWindowRows is the tallest window the table draws. The card used to
+	// take every row the stats strip left, so a machine with seventy packages drew a
+	// table from the strip to the footer: the rows existed whether or not the list
+	// had that many, and the composition had no room left to sit centred. The
+	// window is a reading measure in rows now -- about the table the reference draws
+	// -- and a longer list scrolls inside it, so the card hugs the rows it shows.
+	updateTableWindowRows = 20
 )
 
 // updateCenterWide reports whether the reference's two-column update screen fits
@@ -63,17 +71,16 @@ func (m Model) renderUpdateCenterWide(l layout, budget int) string {
 }
 
 // updateCenterTableColumn is the left column: the stats strip, the filter pills
-// and the grouped table. The table is given exactly the rows the strip left, so
-// the column is never taller than the frame's body: the card that holds the list
-// used to be measured without the two notes it grows at the ends of its window,
-// and the extra rows pushed the frame past the terminal's last row.
+// and the grouped table. The table is given the rows its own window needs, never
+// the column's whole budget: a card that took the rows the frame had left would
+// draw the frame's last row merely because it existed.
 func (m Model) updateCenterTableColumn(width, budget int) []string {
 	var out []string
 	out = append(out, m.updateCenterStatsStrip(width)...)
 	out = append(out, "")
 
-	tableRows := max(cardChromeRows+1, budget-len(out))
-	out = append(out, m.updateCenterTable(width, tableRows)...)
+	limit := max(cardChromeRows+1, budget-len(out))
+	out = append(out, m.updateCenterTable(width, limit)...)
 	return out
 }
 
@@ -160,14 +167,15 @@ func (m Model) updateCenterVisibleGroups() []updateCenterVisibleGroup {
 // row per entry, and a scrollbar on the right. The row under the cursor is one
 // filled bar; the group headers are not cursor positions.
 //
-// The list scrolls INSIDE the card. `rows` is the whole card, borders included, so
-// the window is measured against the rows the heading, the rule under it and the
-// two notes leave -- and the notes hold their rows whether or not the window draws
-// them, because a card that grew a row when the cursor reached an end would move
-// the header above it and the footer under it by that row. A list that fits draws
-// no notes and a card as tall as the list, which is the same height at every
-// cursor position too.
-func (m Model) updateCenterTable(width, rows int) []string {
+// The list scrolls INSIDE the card and the card is exactly as tall as the rows it
+// draws: `limit` is the most it may take, and the window is the list when it fits
+// in that room, the reading measure (updateTableWindowRows) when it does not. A
+// windowed list spends a row at each end naming what it hid, and the two note rows
+// are drawn even when one of them has nothing to say, because a card that grew a
+// row when the cursor reached an end would move the rows around it. Nothing here
+// pads: a card with more room than rows ends at its last row, so the composition
+// around it stays centred.
+func (m Model) updateCenterTable(width, limit int) []string {
 	groups := m.updateCenterVisibleGroups()
 	content := cardContentWidth(width)
 
@@ -192,7 +200,7 @@ func (m Model) updateCenterTable(width, rows int) []string {
 		[]int{updateTableCheckWidth, nameWidth, versionWidth, ownerWidth, scopeWidth},
 		content)
 
-	focused, hasFocus := m.updateCenterFocusedItem()
+	focused, hasFocus := m.updateCenterDetailItem()
 
 	// Build the flat list of drawn objects first, so the window arithmetic is one
 	// pass over the same objects the renderer draws.
@@ -219,13 +227,16 @@ func (m Model) updateCenterTable(width, rows int) []string {
 		}
 	}
 
-	// The heading and the rule under it are the table's own; the rows left are the
-	// list's, and two of them are held for the notes at the window's ends.
-	listRows := max(1, rows-cardChromeRows-2)
-	start, end := 0, len(all)
-	if len(all) > listRows {
-		start, end = listWindow(focusLine, max(1, listRows-updateTableNoteRows), len(all))
+	// The heading and the rule under it are the table's own; what is left is the
+	// window and, when the list does not fit it, the two notes.
+	bodyRows := max(1, limit-cardChromeRows-2)
+	window := min(len(all), updateTableWindowRows, bodyRows)
+	if window < len(all) {
+		// A windowed list spends a row at each end naming what it hid, so the
+		// window yields to them rather than pushing the card past its room.
+		window = max(1, min(window, bodyRows-updateTableNoteRows))
 	}
+	start, end := listWindow(focusLine, window, len(all))
 
 	body := []string{header, rule(content)}
 	for i := start; i < end; i++ {
@@ -238,7 +249,7 @@ func (m Model) updateCenterTable(width, rows int) []string {
 		// The group header carries its own count and the thin group mark.
 		body = append(body, BrandStyle.Render(truncate(line.header, content)))
 	}
-	if len(all) > listRows {
+	if start > 0 || end < len(all) {
 		// Both note rows are drawn, blank where the window has nothing to report:
 		// the card keeps its height, so the two rows under it stay where they were.
 		above, below := "", ""
@@ -249,6 +260,12 @@ func (m Model) updateCenterTable(width, rows int) []string {
 			below = MutedStyle.Render(fmt.Sprintf("↓ %d more below", len(all)-end))
 		}
 		body = append(body, above, below)
+	}
+	if rows := max(1, limit-cardChromeRows); len(body) > rows {
+		// A column too short for the heading, one row and the notes keeps the rows it
+		// has: the two-column shape is gated well above this, so the cut is a floor
+		// and never the shape a reader meets.
+		body = body[:rows]
 	}
 	return card("", "", width, body)
 }
@@ -290,8 +307,13 @@ func (m Model) updateCenterTableRow(item updates.Item, focused updates.Item, has
 }
 
 // updateScrollbarCell is one cell of the table's scrollbar: a filled block where
-// the window sits in the list, a hatched cell elsewhere. It is drawn from the same
-// window the table draws, so it cannot point at a row that is not on screen.
+// the window sits in the list, a hatched cell elsewhere. The track is one cell per
+// row the window draws and it stands for the whole list, so the window's slice
+// lands on the track in proportion: the thumb is as long as the slice's share of
+// the list, and it begins where the slice's first row falls on that share. The
+// thumb therefore starts at the top of the column and ends at its foot as the
+// window walks the list, instead of sitting in the middle of the track wherever
+// the window is.
 func updateScrollbarCell(index, start, end, total int) string {
 	if total <= 0 || end <= start {
 		return " "
@@ -299,33 +321,34 @@ func updateScrollbarCell(index, start, end, total int) string {
 	if index < start || index >= end {
 		return " "
 	}
-	// The thumb is at least one cell and grows with the window's share.
-	thumb := max(1, (end-start)*(end-start)/total)
-	mid := start + (end-start)/2
-	lo := mid - thumb/2
+
+	track := end - start
+	// The slice's share of the track, rounded up so a window of one row in a long
+	// list still fills a cell; the whole list fills the whole track.
+	thumb := min(track, max(1, (track*track+total-1)/total))
+	lo := min(track-thumb, start*track/total)
 	hi := lo + thumb
-	if lo < start {
-		lo, hi = start, start+thumb
-	}
-	if hi > end {
-		hi, lo = end, end-thumb
-	}
-	if index >= lo && index < hi {
+
+	at := index - start
+	if at >= lo && at < hi {
 		return MeterFilledStyle.Render("█")
 	}
 	return MeterStyle.Render("░")
 }
 
 // updateCenterDetailColumn is the right column: the entry under the cursor and
-// the keys this screen reads. A cursor on an action row gets the action card
-// alone, which is the truth: no entry is under it.
+// the keys this screen reads. The entry's card is as tall as the tallest reading
+// the cursor can reach and no taller: a card measured from the row under the
+// cursor would change the composition's height as the user walks the list, and one
+// padded to the column's whole budget left a short reading inside a card as tall
+// as the frame.
 func (m Model) updateCenterDetailColumn(width, budget int) []string {
 	// The keys are the shorter card and the one that must not be cut through, so
 	// they are measured first and the entry's card takes the rows that are left. A
 	// long note then cuts the entry's card with the frame's marker instead of
 	// growing the body past the rows the frame gave it.
 	actions := card("Actions", "Keyboard shortcuts", width, m.updateCenterActionLines(cardContentWidth(width)))
-	entry, ok := m.updateCenterFocusedItem()
+	entry, ok := m.updateCenterDetailItem()
 	if !ok {
 		return actions
 	}
@@ -333,8 +356,17 @@ func (m Model) updateCenterDetailColumn(width, budget int) []string {
 	var out []string
 	room := budget - len(actions) - 1 // the blank row between the two cards
 	if room >= cardChromeRows+1 {
-		body := m.updateCenterItemCardBody(entry, cardContentWidth(width))
-		body = clipLines(body, room-cardChromeRows, cardContentWidth(width))
+		content := cardContentWidth(width)
+		rows := max(1, room-cardChromeRows)
+		// The tallest reading any package the cursor can rest on draws; the
+		// column's own rows are the ceiling.
+		height := 1
+		for _, item := range m.updateCenterVisibleItems() {
+			height = max(height, min(rows, len(m.updateCenterItemCardBody(item, content))))
+		}
+		body := m.updateCenterItemCardBody(entry, content)
+		body = clipLines(body, height, content)
+		body = padRows(body, height)
 		out = append(out, card(entry.Name, entry.Origin()+" package", width, body)...)
 		out = append(out, "")
 	}

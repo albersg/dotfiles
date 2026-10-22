@@ -566,7 +566,7 @@ func (m Model) renderNetworkDiagnostics() string {
 		}
 		hints = append(hints, hintBack)
 	}
-	return m.renderThemeScreen(m.networkDescription(), m.networkNoticeLine(), hints)
+	return m.renderThemeScreen(Model.networkDescription, m.networkNoticeLine(), hints)
 }
 
 // networkNoticeLine is the screen's result line: what is running right now, or

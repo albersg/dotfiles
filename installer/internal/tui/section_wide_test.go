@@ -254,3 +254,112 @@ func TestSectionWideScreensAreTheOnesWithoutTheirOwnWideView(t *testing.T) {
 		}
 	}
 }
+
+// cardColumns is every column a card's top border starts at in a composed body,
+// smallest first: the left column's cards and then the right column's.
+func cardColumns(rows []string) []int {
+	seen := map[int]bool{}
+	var columns []int
+	for _, row := range rows {
+		for at, r := range []rune(row) {
+			if r != '╭' || seen[at] {
+				continue
+			}
+			seen[at] = true
+			columns = append(columns, at)
+		}
+	}
+	sortInts(columns)
+	return columns
+}
+
+// sortInts orders a short slice of columns; the guard's lists are one or two long.
+func sortInts(values []int) {
+	for i := 1; i < len(values); i++ {
+		for j := i; j > 0 && values[j] < values[j-1]; j-- {
+			values[j], values[j-1] = values[j-1], values[j]
+		}
+	}
+}
+
+// cardTrailingBlanks is how many blank rows the card keeps under its last drawn
+// row: none when the card is exactly the reading it holds.
+func cardTrailingBlanks(card []string) int {
+	count := 0
+	for i := len(card) - 2; i > 0; i-- {
+		if !cardInnerBlank(card[i]) {
+			return count
+		}
+		count++
+	}
+	return count
+}
+
+// TestSectionWideDetailCardHoldsItsTallestReading is the guard for the pad: the
+// Details card used to be as tall as the column the frame gave it, so a screen
+// whose detail is a short reading left a card running from the header's rule to
+// the footer. The card is the tallest reading the cursor can reach now -- which is
+// why it is one height at every cursor position -- and a short reading therefore
+// leaves a short card with the composition centred under it.
+func TestSectionWideDetailCardHoldsItsTallestReading(t *testing.T) {
+	short := map[string]bool{"doctor": true, "network-diagnostics": true}
+
+	for _, c := range sectionWideCases(t) {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			m := c.build(t)
+			m.Width, m.Height = 160, 50
+			m.Animating = false
+
+			rows := strings.Split(ansiEscape.ReplaceAllString(m.View(), ""), "\n")
+			rule, footer := frameBodyEnds(rows)
+			if rule < 0 || footer < 0 {
+				t.Fatalf("%s does not draw the frame's own rule and footer:\n%s", c.name, strings.Join(rows, "\n"))
+			}
+			body := rows[rule+1 : footer]
+			columns := cardColumns(body)
+			if len(columns) < 2 {
+				// A report draws one card across the composition and has no detail
+				// column beside the list, so this card is not the one measured here.
+				return
+			}
+			right := columns[len(columns)-1]
+
+			var want [2]int
+			filledSomewhere := false
+			for cursor := 0; cursor < len(m.GetCurrentOptions()); cursor++ {
+				moved := c.build(t)
+				moved.Width, moved.Height = 160, 50
+				moved.Animating = false
+				moved.Cursor = cursor
+				movedRows := strings.Split(ansiEscape.ReplaceAllString(moved.View(), ""), "\n")
+				movedRule, movedFooter := frameBodyEnds(movedRows)
+				if movedRule < 0 || movedFooter < 0 {
+					t.Fatalf("%s does not draw the frame's own rule and footer with the cursor on row %d", c.name, cursor)
+				}
+				spans := cardSpansInColumn(movedRows[movedRule+1:movedFooter], right)
+				if len(spans) != 1 {
+					t.Fatalf("%s draws %d cards in its detail column with the cursor on row %d:\n%s",
+						c.name, len(spans), cursor, strings.Join(movedRows, "\n"))
+				}
+				if cursor == 0 {
+					want = spans[0]
+				} else if spans[0] != want {
+					t.Errorf("%s puts its detail card on rows %d-%d with the cursor on row %d, where row 0 put it on rows %d-%d: the composition moves as the cursor walks",
+						c.name, spans[0][0], spans[0][1], cursor, want[0], want[1])
+				}
+				card := movedRows[movedRule+1 : movedFooter][spans[0][0] : spans[0][1]+1]
+				if cardTrailingBlanks(card) == 0 {
+					filledSomewhere = true
+				}
+			}
+			if !filledSomewhere {
+				t.Errorf("%s never draws its detail card without blank rows under the last fact: the card is padded, not measured from its reading", c.name)
+			}
+			if short[c.name] && want[1]-want[0]+1 >= len(body) {
+				t.Errorf("%s draws a %d-row detail card in a %d-row body: a short reading still fills the column",
+					c.name, want[1]-want[0]+1, len(body))
+			}
+		})
+	}
+}

@@ -1522,3 +1522,76 @@ Not taken:
 - **The action rows** are still rows inside the list, and the wide goldens for these
   eleven screens are not pinned yet -- both belong to the section renderer's owner,
   as L27 records.
+
+L29. Four defects the user reported against the wide cards, all four from one
+convention: a card padded to the frame's row budget for stability. Each one is
+fixed at its cause and held by a guard.
+
+- **The update center's list card hugs its window.** The table was given every row
+  the stats strip left, so a machine with seventy packages drew a table from the
+  strip to the footer and the composition had nothing left to be centred in. The
+  window is a reading measure now (`updateTableWindowRows`, twenty rows: about the
+  table the reference draws), a longer list scrolls inside it, and the card is
+  exactly the rows it draws -- the heading, the rule, the window and the two note
+  rows, which are still drawn whether or not one of them has something to say.
+  Nothing is padded, so the frame's spare rows stay above and below the
+  composition. The detail's own card is measured the same way it is on the section
+  screens (`updateCenterDetailColumn`): the tallest reading any visible package
+  draws, so walking the list cannot change the composition's height either.
+- **The cursor rests only on packages.** `up`/`k` and `down`/`j` move to the next
+  package row (`updateCenterStep`), skipping group rules, the action rows and the
+  way back -- the actions carry their own letters and the way back is Esc, so
+  nothing became unreachable. And the detail no longer blanks: when a state puts
+  the cursor on a row that is not a package, `updateCenterDetailItem` describes the
+  nearest package above it, then below, and the table keeps its filled row on it.
+  That also removes the follow-up L24 recorded: an action row no longer scrolls
+  the window back to the first entry, because the window follows the entry the
+  card describes.
+- **The section "Details" card is capped at its tallest reading.**
+  `sectionWideDetailCard` was padded to the column's whole budget, which is why a
+  short reading left a frame-height card. To measure the reading without moving it,
+  `renderThemeScreen` takes the screen's own description function instead of its
+  paragraphs (`Model.doctorDescription`, `Model.diskCleanerDescription`, …), and the
+  card asks that function for the detail at every row the cursor can rest on and
+  holds the tallest. The frame's rows are still the ceiling, and the cut marker is
+  unchanged. The port facts card is capped the same way
+  (`portManagerFactsCard`): the head, the divider and the longest socket's facts,
+  measured with the facts open, so neither opening the detail nor walking the
+  reading resizes the column. The doctor's Details card went from 45 rows to 13 at
+  160x50, the network diagnosis's from 45 to 15 and the port facts column from 45 to
+  19; the disk cleaner's prose is longer than any column, so its card is still cut
+  at the budget and its golden did not move.
+- **The scrollbar tracks the window proportionally.** The thumb was placed around
+  the middle of the visible window wherever the window sat, so the first screenful
+  read as half way down the list. The track is one cell per drawn row and stands for
+  the whole list: the thumb is the slice's share of it (rounded up, so a one-row
+  slice still fills a cell) and begins where the slice's first row falls on it
+  (`updateScrollbarCell`). It now starts at the top of the column and ends at its
+  foot.
+
+Guards. `TestUpdateCenterListCardHugsItsWindow` (the card is the same height at
+160x50 and 160x80, shorter than the room it was given, has no blank row inside it,
+and the composition is centred), `TestUpdateCenterCompositionHoldsStillWhileTheCursorWalks`
+(both columns' top and bottom rows are the same at every cursor position),
+`TestUpdateCenterCursorVisitsOnlyPackageRows` (walking down visits every package and
+nothing else, with the detail card drawn at each stop), 
+`TestUpdateCenterDetailFallsBackToTheNearestPackage` (an action row describes the
+nearest package), `TestUpdateScrollbarFollowsTheWindowProportionally` (the first
+rows fill the top cell, the last rows the last one, half the list fills half the
+track and the whole list fills all of it, and the thumb only travels down),
+`TestSectionWideDetailCardHoldsItsTallestReading` (every section screen's card holds
+one height, one cursor position fills it exactly, and a short reading leaves a card
+shorter than the body) and `TestPortFactsCardHoldsItsTallestReading` (the same, and
+the same span with the detail open and closed). Goldens regenerated:
+`TestUpdateCenterWideGolden`, `TestDoctorWideGolden`, `TestNetworkDiagnosticsWideGolden`
+and `TestPortManagerWideGolden`. No other screen changed shape: the section screens
+whose detail already ran past their column still draw the card at the budget, and
+the 80x24 floor keeps the compact renderers it had.
+
+Two things left. `sectionWideReportCard` -- the one card a report draws across the
+composition -- still fills the body rather than its reading; the reports have no
+list and no second column, so capping it is a separate decision about the report
+screens. And the description function now reaches the screen renderer as a
+parameter, so a new section screen must pass it (`renderThemeScreen(Model.xDescription, …)`)
+rather than a slice; a screen that passed the wrong one would cap its card at
+another screen's reading.

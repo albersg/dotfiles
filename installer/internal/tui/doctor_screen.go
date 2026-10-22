@@ -807,12 +807,12 @@ func (m Model) handleDoctorFixKeys(key string) (tea.Model, tea.Cmd) {
 
 // renderDoctor draws the doctor's list.
 func (m Model) renderDoctor() string {
-	return m.renderThemeScreen(m.doctorDescription(), m.doctorNotice(), m.doctorHints())
+	return m.renderThemeScreen(Model.doctorDescription, m.doctorNotice(), m.doctorHints())
 }
 
 // renderDoctorFix draws the confirmation for one fix.
 func (m Model) renderDoctorFix() string {
-	return m.renderThemeScreen(m.doctorFixDescription(), m.Doctor.FixNotice, m.doctorFixHints())
+	return m.renderThemeScreen(Model.doctorFixDescription, m.Doctor.FixNotice, m.doctorFixHints())
 }
 
 // doctorFixHints is the confirmation's legend: the letter that applies the fix,

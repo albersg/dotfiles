@@ -167,7 +167,7 @@ func installVerifyRowLine(finding installFinding) string {
 // record cannot say, and which paths are gone. It is the same body shape as the
 // other read-only report in the section, and the only key is the way back.
 func (m Model) renderInstallVerify() string {
-	return m.renderThemeScreen(m.installVerifyDescription(), "",
+	return m.renderThemeScreen(Model.installVerifyDescription, "",
 		[]installerHint{hintBack})
 }
 

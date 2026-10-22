@@ -145,32 +145,47 @@ func (m Model) portManagerListCard(width, budget int) ([]string, int, int) {
 
 // portManagerFactsCard is the card beside the reading: what the reading is (its
 // scope and its filter, sort and refresh state), and -- once Enter has opened the
-// row under the cursor -- that socket's own facts. The card holds the rows its
-// column was given, so opening the detail adds facts to the block the column
-// already holds instead of moving the composition under the user.
+// row under the cursor -- that socket's own facts. The card is as tall as the
+// tallest reading the cursor can reach: the head it always draws, the divider and
+// the fact block of the socket whose facts are longest. Opening the detail then
+// spends rows the column already held, and so does walking the list, so neither
+// moves the composition under the user -- and a reading with few facts leaves a
+// card that ends with its facts instead of one as tall as the frame.
 func (m Model) portManagerFactsCard(width, budget int) []string {
 	content := cardContentWidth(width)
 	room := max(1, budget-cardChromeRows)
 
 	head := mutedLines(wrapSectionParagraphs([]string{m.portScopeSentence(), m.portStateLine()}, content))
 	head = clipLines(head, room, content)
+
+	// The facts block is measured for the longest socket the cursor can land on,
+	// whether or not the detail is open: the press that opens it must not resize
+	// the column it opens in.
+	facts := 0
+	for _, listener := range m.portVisibleListeners() {
+		facts = max(facts, len(iconFactLines(m.portFacts(listener), content)))
+	}
+	hold := len(head)
+	if facts > 0 {
+		hold = min(room, len(head)+1+facts)
+	}
+
 	groups := []cardGroup{{Lines: head}}
 	used := len(head)
 
 	if m.Ports.Detail {
 		if listener, ok := m.portSelectedListener(); ok {
-			facts := iconFactLines(m.portFacts(listener), content)
-			facts = clipLines(facts, max(1, room-used-1), content)
-			groups = append(groups, cardGroup{Title: portSelectedGroup, Lines: facts})
-			used += 1 + len(facts)
+			lines := iconFactLines(m.portFacts(listener), content)
+			lines = clipLines(lines, max(1, hold-used-1), content)
+			groups = append(groups, cardGroup{Title: portSelectedGroup, Lines: lines})
+			used += 1 + len(lines)
 		}
 	}
 
-	// The column keeps its rows whether or not the detail is open, exactly as the
-	// section screens' detail column does: a composition that grew by the facts
-	// would climb under the user on the press that opened them.
+	// The column holds the rows the longest reading needs, so opening the detail
+	// adds facts to the block the column already holds instead of climbing.
 	last := len(groups) - 1
-	groups[last].Lines = padRows(groups[last].Lines, len(groups[last].Lines)+max(0, room-used))
+	groups[last].Lines = padRows(groups[last].Lines, len(groups[last].Lines)+max(0, hold-used))
 	return cardGroups(portFactsChip, "", width, groups)
 }
 

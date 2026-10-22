@@ -1971,7 +1971,7 @@ func (m Model) renderUpdate() string {
 	if !m.UpdateCheck.InFlight {
 		hints = append(hints, hintRefresh)
 	}
-	return m.renderThemeScreen(m.updateDescription(), m.UpdateCheck.Notice, hints)
+	return m.renderThemeScreen(Model.updateDescription, m.UpdateCheck.Notice, hints)
 }
 
 // renderWSLResources draws the WSL resource screen: the host's capacities, the
@@ -1980,7 +1980,7 @@ func (m Model) renderUpdate() string {
 // so it uses the same budget arithmetic; the arrows are the extra keys, and they
 // are in the legend rather than in prose.
 func (m Model) renderWSLResources() string {
-	return m.renderThemeScreen(m.wslResourceDescription(), m.wslNoticeLine(),
+	return m.renderThemeScreen(Model.wslResourceDescription, m.wslNoticeLine(),
 		[]installerHint{hintMove, hintAdjust, hintRecommended, hintWriteWSL, hintRepairGuard, hintBack})
 }
 
@@ -2001,7 +2001,7 @@ func (m Model) wslNoticeLine() string {
 // one honest line that the probe is still reading. The screen changes nothing,
 // so its only key is the way back.
 func (m Model) renderTerminalCapabilities() string {
-	return m.renderThemeScreen(m.terminalCapabilitiesDescription(), "",
+	return m.renderThemeScreen(Model.terminalCapabilitiesDescription, "",
 		[]installerHint{hintBack})
 }
 
@@ -2053,7 +2053,7 @@ func (m Model) renderShellAudit() string {
 	if m.shellAuditWide(l, budget) {
 		return m.renderShellAuditWide(l, budget)
 	}
-	return m.renderThemeScreen(m.shellAuditDescription(), m.shellAuditNotice(), hints)
+	return m.renderThemeScreen(Model.shellAuditDescription, m.shellAuditNotice(), hints)
 }
 
 // renderThemePicker draws the dotfiles theme list: the mockup's grid of theme
@@ -2067,10 +2067,10 @@ func (m Model) renderThemePicker() string {
 	// its commands on their letters, named in the footer only while their rows are.
 	if m.ThemeRefreshReview {
 		if m.ThemeRefreshDone {
-			return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice,
+			return m.renderThemeScreen(Model.themePickerDescription, m.ThemeNotice,
 				[]installerHint{hintOpen, hintBack})
 		}
-		return m.renderThemeScreen(m.themePickerDescription(), m.ThemeNotice,
+		return m.renderThemeScreen(Model.themePickerDescription, m.ThemeNotice,
 			[]installerHint{hintUp, hintDown, hintThemeRefreshApply, hintThemeRefreshCancel})
 	}
 
@@ -2083,7 +2083,15 @@ func (m Model) renderThemePicker() string {
 // row under the cursor: moving the cursor changes what the rows say, never where
 // they are. The notice and the hints are parameters rather than fields so a
 // screen's footer says what that screen's keys do.
-func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints []installerHint) string {
+//
+// The description is the screen's own function rather than the paragraphs it
+// returns, so the two-column card can ask for the same detail at every row the
+// cursor can rest on and hold the tallest of them: a card measured from the row
+// under the cursor would change the composition's height as the user walks the
+// list.
+func (m Model) renderThemeScreen(description func(Model) []string, screenNotice string, hints []installerHint) string {
+	paragraphs := description(m)
+
 	// On a frame with room for two columns, the screens whose detail is context for
 	// a list draw it beside the list instead of above it: the list keeps the whole
 	// body, and the detail gets the column the wide frame has going spare.
@@ -2095,7 +2103,7 @@ func (m Model) renderThemeScreen(paragraphs []string, screenNotice string, hints
 	// frame too short for both keep the bands, and the gate reads only the frame, so
 	// the screen cannot change shape while the user walks it.
 	if m.sectionWide(l, hints) {
-		return m.renderSectionWide(l, paragraphs, screenNotice, hints)
+		return m.renderSectionWide(l, description, screenNotice, hints)
 	}
 	// A section screen whose right column comes from the panel registry lets the
 	// frame compose it; only the screens with no registered panel draw their detail

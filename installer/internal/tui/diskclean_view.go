@@ -95,7 +95,7 @@ func (m Model) renderDiskCleaner() string {
 		}
 		hints = append(hints, hintBack)
 	}
-	return m.renderThemeScreen(m.diskCleanerDescription(), m.diskCleanerNotice(), hints)
+	return m.renderThemeScreen(Model.diskCleanerDescription, m.diskCleanerNotice(), hints)
 }
 
 // diskCleanerNotice is the screen's live line: what is happening right now, and

@@ -1215,31 +1215,31 @@ func sshBoundedLines(text string, rows int) []string {
 // the frame's rows, the companion and the notice slot behave identically here.
 
 func (m Model) renderSSHManager() string {
-	return m.renderThemeScreen(m.sshManagerDescription(), m.SSH.Notice, m.sshHints())
+	return m.renderThemeScreen(Model.sshManagerDescription, m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHHost() string {
-	return m.renderThemeScreen(m.sshHostDescription(), m.SSH.Notice, m.sshHints())
+	return m.renderThemeScreen(Model.sshHostDescription, m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHForm() string {
-	return m.renderThemeScreen(m.sshFormDescription(), m.SSH.Notice, m.sshHints())
+	return m.renderThemeScreen(Model.sshFormDescription, m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHKeys() string {
-	return m.renderThemeScreen(m.sshKeyDescription(), m.SSH.Notice, m.sshHints())
+	return m.renderThemeScreen(Model.sshKeyDescription, m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHAgent() string {
-	return m.renderThemeScreen(m.sshAgentDescription(), m.SSH.Notice, m.sshHints())
+	return m.renderThemeScreen(Model.sshAgentDescription, m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHDiagnostics() string {
-	return m.renderThemeScreen(m.sshDiagnosticDescription(), m.SSH.Notice, m.sshHints())
+	return m.renderThemeScreen(Model.sshDiagnosticDescription, m.SSH.Notice, m.sshHints())
 }
 
 func (m Model) renderSSHTest() string {
-	return m.renderThemeScreen(m.sshTestDescription(), m.SSH.Notice, m.sshHints())
+	return m.renderThemeScreen(Model.sshTestDescription, m.SSH.Notice, m.sshHints())
 }
 
 // sshHints is the footer of every screen in this file, in one place. It names
