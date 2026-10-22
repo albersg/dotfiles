@@ -1,0 +1,50 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
+   Learn                                                                                                                                             dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ╭─ Shell tooling ───────────────────────────────────────────────────────────────────────────── What the shell step installs beside the shell the run chose ╮  
+  │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
+  │   eza                                                                                                                                       File listing │  
+  │   ls, ll, la, lt and tree aliases, in zsh and in fish                                                                                                    │  
+  │   bat                                                                                                                                              Pager │  
+  │   cat function (plain output, no paging), in zsh and in fish; fzf previews; BAT_THEME                                                                    │  
+  │   ripgrep                                                                                                                                         Search │  
+  │   grep alias and fzf's default search                                                                                                                    │  
+  │   fd                                                                                                                                        File finding │  
+  │   FZF_DEFAULT_COMMAND and the fzf directory jump                                                                                                         │  
+  │   fzf                                                                                                                                       Fuzzy finder │  
+  │   Ctrl+R history, Alt+C, and the shell integration the shipped configuration evals                                                                       │  
+  │   fnm                                                                                                                                       Node runtime │  
+  │   owns the Node runtime; npm globals live in ~/.npm-global                                                                                               │  
+  │   direnv                                                                                                                      Per-directory environments │  
+  │   direnv hook zsh                                                                                                                                        │  
+  │   jq                                                                                                                                                JSON │  
+  │   JSON in the shell helpers and scripts                                                                                                                  │  
+  │   gh                                                                                                                                          GitHub CLI │  
+  │   the GitHub command line, and the credential helper .gitconfig configures                                                                               │  
+  │   git-delta                                                                                                                                   Diff pager │  
+  │   core.pager and interactive.diffFilter in .gitconfig                                                                                                    │  
+  │   xh                                                                                                                                         HTTP client │  
+  │   http alias                                                                                                                                             │  
+  │   trippy                                                                                                                                      Traceroute │  
+  │   traceroute and tracert aliases, only when it is present                                                                                                │  
+  │   btop                                                                                                                                  Resource monitor │  
+  │   top alias, only when it is present                                                                                                                     │  
+  │   zoxide                                                                                                                               Directory jumping │  
+  │   the z command                                                                                                                                          │  
+  │   atuin                                                                                                                                    Shell history │  
+  │   the history the shell searches                                                                                                                         │  
+  │   carapace                                                                                                                             Completion bridge │  
+  │   completions for zsh, fish and bash                                                                                                                     │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                                 ↑/k up • ↓/j down • [Enter] open • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

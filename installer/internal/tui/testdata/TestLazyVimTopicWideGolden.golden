@@ -1,0 +1,50 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
+   LazyVim                                                                                                                                           dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ╭─ What is LazyVim? ─────────────────────────────────────────────────────────────────────────────────────── LazyVim is a Neovim setup powered by lazy.nvim ╮  
+  │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
+  │ LazyVim is NOT a plugin, it's a complete Neovim distribution.                                                                                            │  
+  │ It provides sane defaults, pre-configured plugins, and a                                                                                                 │  
+  │ modular architecture that makes customization easy.                                                                                                      │  
+  │                                                                                                                                                          │  
+  │ Key concepts:                                                                                                                                            │  
+  │ • lazy.nvim: The plugin manager (handles loading/updates)                                                                                                │  
+  │ • LazyVim: The distribution (pre-configured setup)                                                                                                       │  
+  │ • Extras: Optional modules you can enable/disable                                                                                                        │  
+  │ • Your config: Overrides in ~/.config/nvim/lua/plugins/                                                                                                  │  
+  │                                                                                                                                                          │  
+  │ Example:                                                                                                                                                 │  
+  │                                                                                                                                                          │  
+  │ -- Your config structure:                                                                                                                                │  
+  │ ~/.config/nvim/                                                                                                                                          │  
+  │ ├── lua/                                                                                                                                                 │  
+  │ │   ├── config/                                                                                                                                          │  
+  │ │   │   ├── lazy.lua     -- Plugin manager setup                                                                                                         │  
+  │ │   │   ├── keymaps.lua  -- Your custom keymaps                                                                                                          │  
+  │ │   │   ├── options.lua  -- Neovim options                                                                                                               │  
+  │ │   │   └── autocmds.lua -- Auto commands                                                                                                                │  
+  │ │   └── plugins/                                                                                                                                         │  
+  │ │       ├── example.lua  -- Your custom plugins                                                                                                          │  
+  │ │       └── overrides.lua -- Override LazyVim defaults                                                                                                   │  
+  │ └── init.lua                                                                                                                                             │  
+  │                                                                                                                                                          │  
+  │ Tips:                                                                                                                                                    │  
+  │   • Press <leader>l to open Lazy (plugin manager UI)                                                                                                     │  
+  │   • Press <leader>L to see LazyVim changelog                                                                                                             │  
+  │   • All your customizations go in lua/plugins/                                                                                                           │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                             ↑/k up • ↓/j down • [PgUp/PgDn] page • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

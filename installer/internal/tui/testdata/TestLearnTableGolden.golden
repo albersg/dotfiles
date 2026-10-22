@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Learn                                         Showing 1-6 of 16 · dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  ╭─ Shell tooling ──────────────────────────────────────────────────────────╮  
+  │──────────────────────────────────────────────────────────────────────────│  
+  │ What the shell step installs beside the shell the run chose              │  
+  │   eza                                                       File listing │  
+  │   ls, ll, la, lt and tree aliases, in zsh and in fish                    │  
+  │   bat                                                              Pager │  
+  │   cat function (plain output, no paging), in zsh and in fish; fzf        │  
+  │   previews; BAT_THEME                                                    │  
+  │   ripgrep                                                         Search │  
+  │   grep alias and fzf's default search                                    │  
+  │   fd                                                        File finding │  
+  │   FZF_DEFAULT_COMMAND and the fzf directory jump                         │  
+  │   fzf                                                       Fuzzy finder │  
+  │   Ctrl+R history, Alt+C, and the shell integration the shipped           │  
+  │   configuration evals                                                    │  
+  │   fnm                                                       Node runtime │  
+  │   owns the Node runtime; npm globals live in ~/.npm-global               │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────  
+                                 ↑/k up • ↓/j down • [Enter] open • [Esc] back  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

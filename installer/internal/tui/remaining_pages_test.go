@@ -272,7 +272,6 @@ func TestLearnTablesDrawEveryEntryWhole(t *testing.T) {
 		"the plugin page":        pluginSetsTable(),
 		"the toolset page":       machineToolsetTable(),
 	}
-	m := installerFrameModel(t, ScreenLearnTooling)
 	for name, table := range tables {
 		if !table.TwoLine {
 			t.Fatalf("%s no longer asks for the two-line shape", name)
@@ -280,7 +279,7 @@ func TestLearnTablesDrawEveryEntryWhole(t *testing.T) {
 		for _, width := range []int{60, 76, 156} {
 			for _, row := range table.Rows {
 				at := referenceRowIndex(table, row)
-				rows := m.referenceEntryRows(table, at, at+1, width)
+				rows := referenceEntryRows(table, at, at+1, width)
 				flat := strings.Join(strings.Fields(strings.Join(rows, " ")), " ")
 				if !strings.Contains(flat, strings.Join(strings.Fields(row.What), " ")) {
 					t.Fatalf("%s at %d columns does not draw %q whole, it draws %q", name, width, row.What, flat)

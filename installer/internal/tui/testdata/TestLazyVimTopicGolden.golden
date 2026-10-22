@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   LazyVim                                        Lines 1-15 of 29 · dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  ╭─ What is LazyVim? ─────── LazyVim is a Neovim setup powered by lazy.nvim ╮  
+  │──────────────────────────────────────────────────────────────────────────│  
+  │ LazyVim is NOT a plugin, it's a complete Neovim distribution.            │  
+  │ It provides sane defaults, pre-configured plugins, and a                 │  
+  │ modular architecture that makes customization easy.                      │  
+  │                                                                          │  
+  │ Key concepts:                                                            │  
+  │ • lazy.nvim: The plugin manager (handles loading/updates)                │  
+  │ • LazyVim: The distribution (pre-configured setup)                       │  
+  │ • Extras: Optional modules you can enable/disable                        │  
+  │ • Your config: Overrides in ~/.config/nvim/lua/plugins/                  │  
+  │                                                                          │  
+  │ Example:                                                                 │  
+  │                                                                          │  
+  │ -- Your config structure:                                                │  
+  │ ~/.config/nvim/                                                          │  
+  │ ├── lua/                                                                 │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────  
+                             ↑/k up • ↓/j down • [PgUp/PgDn] page • [Esc] back  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

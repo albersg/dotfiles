@@ -8,6 +8,15 @@ const (
 	learnSectionInstalled
 )
 
+// The two sections' names, as the hub's card prints them: the first on the card's
+// chip (a divider only precedes a group, and the first group has none above it)
+// and the second on the divider between them. They are constants because the card
+// and the divider have to say the same two things.
+const (
+	learnSectionChosenTitle    = "What the run chooses"
+	learnSectionInstalledTitle = "What the run installs"
+)
+
 // learnToolRow is one row of the Learn About Tools hub: the label the menu shows
 // and the screen it opens. The menu is built from this table and the key handler
 // resolves its answer through it, so a page cannot be offered without a row or

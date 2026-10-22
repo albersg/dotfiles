@@ -63,29 +63,33 @@ func TestHubPageDrawsTheCardAndItsPanel(t *testing.T) {
 // the cursor walks the list. The row under the cursor changes; the frame does
 // not.
 func TestHubCardStaysWhereItIsWhenTheCursorMoves(t *testing.T) {
-	bordersAt := func(cursor int) []int {
+	bordersAt := func(cursor int) (tops, bottoms []int) {
 		m := Model{Screen: ScreenVimHub, Width: 160, Height: 48, Cursor: cursor}
 		lines := strings.Split(m.View(), "\n")
-		var found []int
 		for i, line := range lines {
-			if strings.Contains(line, "╭") || strings.Contains(line, "╰") {
-				found = append(found, i)
+			if strings.Contains(line, "╭") {
+				tops = append(tops, i)
+			}
+			if strings.Contains(line, "╰") {
+				bottoms = append(bottoms, i)
 			}
 		}
-		return found
+		return tops, bottoms
 	}
 
-	first := bordersAt(0)
-	last := bordersAt(3)
+	firstTops, firstBottoms := bordersAt(0)
+	lastTops, lastBottoms := bordersAt(3)
 	// The screen draws two cards: the hub's own and the panel column beside it,
-	// which is the same grammar's card. What the guard holds is that the rows do
-	// not move, so any number of cards is fine and an odd one is a card without its
-	// bottom border.
-	if len(first) < 2 || len(first)%2 != 0 {
-		t.Fatalf("the hub's borders are on %v rows, want a top and a bottom for each card: %v", len(first), first)
+	// which is the same grammar's card. Their top borders share a row now that the
+	// body is a card and no longer spends a title row above it, so the guard asks
+	// for a top and a bottom rather than for matched pairs: what it holds is that a
+	// card is closed and that no border moves with the cursor.
+	if len(firstTops) == 0 || len(firstBottoms) == 0 {
+		t.Fatalf("the hub draws no closed card: tops on %v, bottoms on %v", firstTops, firstBottoms)
 	}
-	if !reflect.DeepEqual(first, last) {
-		t.Errorf("the card moved with the cursor: borders at %v with the first row, %v with the last", first, last)
+	if !reflect.DeepEqual(firstTops, lastTops) || !reflect.DeepEqual(firstBottoms, lastBottoms) {
+		t.Errorf("the card moved with the cursor: tops %v/%v, bottoms %v/%v",
+			firstTops, lastTops, firstBottoms, lastBottoms)
 	}
 }
 

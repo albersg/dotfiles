@@ -85,7 +85,7 @@ The user's words, verbatim:
 | T6 | S8 | The utilities screen | (in the tree, uncommitted — the card of two-line rows, the System Overview panel and two goldens) |
 | T7 | S9 | The theme selector grid | (in the tree, uncommitted — the heading, the subtitle, the card grid, the floor list, the tip and the goldens) |
 | T8 | S7 | The installing checklist, the log panel and the progress bar | (in the tree, uncommitted — the mockup's stack, the checklist beside the log card, the bar under both and the `[q] Cancel` footer) |
-| T9 | S10 | The remaining pages | (in the tree, uncommitted — the pickers' card, the framed dead ends, the completion fact rows, the backup cards and the two-line learn tables; the doctor, the update center and the remaining utility pages are follow-ups, see L16) |
+| T9 | S10 | The remaining pages | (in the tree, uncommitted — the pickers' card, the framed dead ends, the completion fact rows, the backup cards and the learn pages, the keymap tables and the LazyVim guide on the reference card; the doctor and the update center are follow-ups, see L16 and L19) |
 | T10 | S11 | The floor/stability/contrast guards and the goldens | (with each task) |
 
 T3 now ships in the current palette so the layout and the vocabulary can be
@@ -1192,3 +1192,70 @@ advertised with no row under the cursor, the same top border at every cursor
 position, the compact fallback at 36x24 and 80x12, and -- for the multiplexer -- the
 Termux host's three answers and no fourth. Goldens: `TestWMSelectGolden` and
 `TestWMSelectWideGolden`, `TestNvimSelectGolden` and `TestNvimSelectWideGolden`.
+
+**The Learn pages, the keymap tables and the LazyVim guide join the reference
+grammar.** They were the last pages still drawing the old vocabulary: a bold title
+row, a description sentence under it, a blank row, and then floating lines. They are
+cards now (`reference_cards.go`), through the shared `cardGroups`/`cardRowLines`
+grammar every other screen uses:
+
+- **The menus** -- the Learn hub, its four tool menus, the prompt menu, the Vim hub,
+  the five keymap menus and the LazyVim guide menu -- draw `menuCardBody`'s card:
+  the page's own title as the chip, its own description as the caption, the rule
+  under the pair and `GetCurrentOptions()` as one row each, with the option list's
+  separator as the card's divider and the row under the cursor filled and marked. A
+  row that opens a page wears the chevron; the way back acts where it stands, so it
+  keeps its arrow and no chevron. The Learn hub's two sections stay named: the first
+  on the chip (a divider only precedes a group, and the first group has none above
+  it) and the second on the divider, from the two constants `learn_menu.go` now
+  holds. The hub takes the section's name on the chip only while its whole list fits
+  under it, and that decision reads the list, never the cursor.
+- **The tool pages** -- terminals, shells, multiplexers, the font, Neovim and the
+  prompts -- are `toolInfoCardBody`: the tool's own name as the chip, its website as
+  the caption, its description as the card's prose and `info.Pros`/`info.Cons` under
+  the `✓ Pros` and `✗ Cons` dividers, each reason wrapped whole with the note that
+  counts the ones the rows could not hold. The old body is kept as the fallback for a
+  frame too narrow or too short for the card.
+- **The read-only tables** -- shell tooling, plugins, the machine toolset and the
+  WezTerm/Alacritty settings -- are `referenceTableCard`: the table's own name as the
+  chip and its description as the caption, with each entry as the grammar's row (the
+  name as the title, its kind trailing at the right edge, the sentence whole under
+  them).
+- **The keymap tables** keep their three columns, which are the page, and take the
+  grammar's header role above them; the category's own rows are built by
+  `keymapCategoryTable`, which the scroll keys read too.
+- **The LazyVim topic** is `lazyVimTopicCard`: the topic's title as the chip, its
+  description as the caption and the window of its lines under the rule, the example
+  and the tips keeping the marks they had.
+
+No datum moved. The rows are the pages' own lists in their own order, the labels,
+the keys, the recorded choices and the footer legends are untouched, and the tables
+keep every row. The card's chrome is three rows where the old head was three rows --
+its top border, the rule under the chip and its bottom border -- so every page keeps
+the rows it had and its scroll keys keep their distance. A caption the border row has
+no room for moves under the rule (`referenceCard`), and its rows come off the window
+first, so a narrow frame draws fewer rows instead of one row past its budget; the
+budget the keys clamp with is the budget the card spent (`referenceRowBudget`,
+`lazyVimTopicRows`, `keymapCategoryRows`). Two small repairs came with it: the prompt
+menu had no screen title at all, so its card opened under a blank heading, and a
+caption could be dropped when its card had no chip to sit beside -- both now say what
+they hold. The palette is the applied theme's roles; nothing here names a colour.
+
+Guards. `reference_cards_test.go`: every converted page draws the shared card with
+its own chip and its own rows inside it and fills the frame exactly, the footers
+still advertise the keys the handlers answer to, the tool pages keep both lists and
+wrap their reasons, a keymap table's card spends exactly its window, and a LazyVim
+topic's card is its window plus its chrome. The existing guards were re-pointed where
+the shape changed: `TestLearnTablesDrawEveryEntryWhole` reads the entry renderer
+directly, `TestKeymapCategoryLastBindingIsReachable` asks `keymapCategoryRows`, and
+`TestHubCardStaysWhereItIsWhenTheCursorMoves` compares the rows of the two cards'
+tops and bottoms separately, because the body card's top now shares a row with the
+panel's. Goldens: `TestLearnHubGolden`/`TestLearnHubWideGolden`,
+`TestVimHubGolden`/`TestVimHubWideGolden`,
+`TestLearnToolGolden`/`TestLearnToolWideGolden`,
+`TestLearnTableGolden`/`TestLearnTableWideGolden`,
+`TestKeymapTableGolden`/`TestKeymapTableWideGolden` and
+`TestLazyVimTopicGolden`/`TestLazyVimTopicWideGolden`. The review capture
+(`capture_redesign_test.go`) lists the Vim hub, the prompt page, the keymap menus,
+the long-key Herdr table and the LazyVim guide and topic beside the Learn pages it
+already had.

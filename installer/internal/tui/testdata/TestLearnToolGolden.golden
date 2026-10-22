@@ -1,0 +1,24 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                
+   Learn                                                             dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+                                                                                
+  ╭─ Alacritty ─────────────────────────────────────── https://alacritty.org ╮  
+  │──────────────────────────────────────────────────────────────────────────│  
+  │ GPU-accelerated terminal emulator focused on simplicity and performance  │  
+  │                                                                          │  
+  ├─ ✓ Pros ─────────────────────────────────────────────────────────────────┤  
+  │ • Fastest terminal emulator (GPU rendering)                              │  
+  │ • Very low latency                                                       │  
+  │ • Simple TOML configuration                                              │  
+  │ • Cross-platform (Linux, macOS, Windows)                                 │  
+  │ • Low memory usage                                                       │  
+  ├─ ✗ Cons ─────────────────────────────────────────────────────────────────┤  
+  │ • No tabs/splits (use tmux/zellij)                                       │  
+  │ • No ligatures support                                                   │  
+  │ • No built-in scrollback search (needs tmux)                             │  
+  │ • Minimal features by design                                             │  
+  ╰──────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+                                                                                
+  ● Ready ────────────────────────────────────────────────────────────────────  
+                                                         [Esc] back • [q] quit  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

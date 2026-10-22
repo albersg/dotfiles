@@ -4083,7 +4083,7 @@ func (m Model) renderSelection() string {
 	if card, ok := m.selectionQuestionCard(bodyHints); ok {
 		return m.frame(m.headerName(), m.selectionVital(), card, hints)
 	}
-	body, _, _, _ := m.menuCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(), 0, bodyHints)
+	body, _, _, _ := m.menuCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(), bodyHints)
 
 	return m.frame(m.headerName(), m.selectionVital(), body, hints)
 }
@@ -4212,15 +4212,19 @@ func (m Model) renderToolInfo(tools map[string]ToolInfo, toolKey string) string 
 	return m.renderSingleToolInfo(info)
 }
 
-// toolInfoFixedRows is the part of the tool-info body that is not a list: the
-// title, the pros chip, the cons chip and the blank rows around them. The
-// description and the website add one row each and are counted at render time,
-// so a description that wraps to two rows cannot push the legend off screen.
-const toolInfoFixedRows = 5
-
+// renderSingleToolInfo draws one tool page in the reference grammar: the tool's
+// name as the card's chip, its website as the caption, the description as the
+// card's prose and the pros and cons under their own titled dividers
+// (toolInfoCardBody, reference_cards.go). A frame too narrow or too short for the
+// card keeps the older body below, which spends its rows on the facts instead of
+// on a border.
 func (m Model) renderSingleToolInfo(info ToolInfo) string {
-	width := contentWidth(m)
 	hints := []installerHint{hintBack, hintQuit}
+	if body, ok := m.toolInfoCardBody(info, hints); ok {
+		return m.frame(m.headerName(), "", body, hints)
+	}
+
+	width := contentWidth(m)
 	bodyRows := installerBodyRows(m.Height, m.footerRowCount(width, hints))
 
 	desc := wrapText(info.Description, width, 2)
@@ -4250,39 +4254,19 @@ func (m Model) renderSingleToolInfo(info ToolInfo) string {
 	// cons: one list short and the other long is the normal case, and a frame that
 	// leaves four rows empty under a note that says "and 3 more" is a frame that
 	// hid facts it had the room to show.
-	pros := wrappedListRows(info.Pros, "• ", prosRows, width-2, InfoStyle)
+	pros := wrappedListRows(info.Pros, referenceReasonMark, prosRows, width-2, InfoStyle)
 	body = append(body, SuccessStyle.Render("✓")+" "+chip("Pros"))
 	body = append(body, gutteredBlock(pros)...)
 	body = append(body, "")
-	cons := wrappedListRows(info.Cons, "• ", consRows+prosRows-len(pros), width-2, MutedStyle)
+	cons := wrappedListRows(info.Cons, referenceReasonMark, consRows+prosRows-len(pros), width-2, MutedStyle)
 	body = append(body, WarningStyle.Render("✗")+" "+chip("Cons"))
 	body = append(body, gutteredBlock(cons)...)
 
 	return m.frame(m.headerName(), "", body, hints)
 }
 
-// keymapTableBodyFixed is the part of a keymap table's body that is not a
-// binding row: the title, the description, the blank under it, the column
-// header and the rule. The table's scroll range moved into the header, so the
-// body no longer spends a row on it.
-const keymapTableBodyFixed = 5
-
 // keymapTableMinRows keeps the table readable when the frame is at its floor.
 const keymapTableMinRows = 3
-
-// keymapTableRows is how many keymap rows the frame leaves. The view and the
-// scroll keys both ask for it, so the keys scroll exactly the rows the screen
-// draws; the five tables used to compute their own window against m.Height-9,
-// which is what let a 15-row window overflow a 24-row frame. It reserves a
-// one-row footer, which is what the navigate-and-return hints take at the
-// documented 80-column floor.
-func keymapTableRows(height int) int {
-	rows := installerBodyRows(height, 1) - keymapTableBodyFixed
-	if rows < keymapTableMinRows {
-		rows = keymapTableMinRows
-	}
-	return rows
-}
 
 // keymapTableColumns derives the three column widths of a keymap table from the
 // frame and the category's own keys: the keys column is the wider of a quarter
@@ -4312,48 +4296,31 @@ func keymapTableColumns(width, longestKey int) (keys, mode, description int) {
 
 // renderKeymapTable renders one keymap category through the shared table
 // renderer: a keymap table is a three-column table whose headers happen to be
-// Keys, Mode and Description. It replaces five copies of the same table that had
-// each picked their own column widths, their own window and their own 60-column
-// rule.
+// Keys, Mode and Description. The category's own rows are built by
+// keymapCategoryTable, which the scroll keys also read, so the page the reader
+// scrolls and the page the keys clamp are one table.
 func (m Model) renderKeymapTable(category KeymapCategory, scroll int) string {
-	cells := make([]referenceRow, 0, len(category.Keymaps))
-	for _, km := range category.Keymaps {
-		cells = append(cells, referenceRow{Name: km.Keys, Kind: km.Mode, What: km.Description})
-	}
-	return m.renderReferenceTable(referenceTable{
-		Name:        category.Name,
-		Description: category.Description,
-		Headers:     [3]string{"Keys", "Mode", "Description"},
-		Rows:        cells,
-	}, scroll)
+	return m.renderReferenceTable(keymapCategoryTable(category), scroll)
 }
 
-// renderReferenceTable renders one read-only table page: its title, description,
-// a column header and the rows the frame has room for. Its scroll value IS the
-// top-row offset (0 shows the first row, offsetWindowMax shows the last), so it
-// windows through the same helpers the key handlers clamp with; the last row is
-// reachable.
+// renderReferenceTable renders one read-only table page in the reference grammar:
+// the table's own name as the card's chip, its description as the caption and the
+// rows the frame has room for inside the card. Its scroll value IS the top-row
+// offset (0 shows the first row, offsetWindowMax shows the last), so it windows
+// through the same helpers the key handlers clamp with; the last row is reachable.
 //
 // The shape is the table's own (see referenceTable.TwoLine). A learn page draws
-// each entry as the frame's two-line row -- the name and its kind on the first
-// row, the sentence about it on the rows under them, whole -- because a learn page
-// exists to be read and its sentences are longer than any column the frame can
-// spare. A keymap table keeps its three columns, where the columns are the page.
+// each entry as the grammar's two-line row -- the name with its kind trailing at the
+// right edge, the sentence about it on the rows under them, whole -- because a
+// learn page exists to be read and its sentences are longer than any column the
+// frame can spare. A keymap table keeps its three columns, where the columns are
+// the page.
 func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
-	width := contentWidth(m)
+	width, content := m.referenceCardWidth()
 	rows := m.referenceRowBudget(table)
-	start, end := referenceWindow(table, width, rows, scroll)
+	start, end := referenceWindow(table, content, rows, scroll)
 
-	body := []string{
-		BrandStyle.Render(table.Name),
-		MutedStyle.Render(truncate(table.Description, width)),
-		"",
-	}
-	if table.TwoLine {
-		body = append(body, m.referenceEntryRows(table, start, end, width)...)
-	} else {
-		body = append(body, referenceTableRows(table, start, end, width)...)
-	}
+	body := referenceTableCard(table, start, end, width, content)
 
 	// The scroll range is the table's vital sign, so it lives in the header and
 	// costs the body no row: the old body held a scroll row even when the list
@@ -4363,27 +4330,22 @@ func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
 	if end-start < len(table.Rows) {
 		vital = scrollVital("Showing", start+1, end, len(table.Rows))
 	}
-	return m.frame(m.headerName(), vital, body, []installerHint{hintUp, hintDown, hintOpen, hintBack})
+	return m.frame(m.headerName(), vital, body, referencePageHints())
 }
 
-// referenceEntryRows draws the two-line entries of a learn page: the name at the
-// table's shared name column, its kind beside it in the muted tone, and the
-// sentence under both, wrapped to the page's width rather than cut at a column.
-// The sentence starts at the page's left edge instead of under the name, because
-// it is the row's subject and the widest thing on it.
-func (m Model) referenceEntryRows(table referenceTable, start, end, width int) []string {
-	nameWidth := referenceNameWidth(table, width)
-	sentenceWidth := max(1, width-2)
+// referenceEntryRows draws the two-line entries of a learn page in the grammar's
+// row: the name as the row's title with its kind trailing at the right edge, and
+// the sentence under both, wrapped to the card's content rather than cut at a
+// column. The sentence is the fact the reader came for, so it is drawn whole on
+// as many rows as it needs; the name and the kind are the row's metadata and share
+// one line.
+func referenceEntryRows(table referenceTable, start, end, width int) []string {
 	var rows []string
 	for i := start; i < end; i++ {
 		row := table.Rows[i]
-		head := KeyStyle.Render(padRight(truncate(row.Name, nameWidth), nameWidth))
-		if kindRoom := width - nameWidth - 1; kindRoom > 0 && row.Kind != "" {
-			head += " " + MutedStyle.Render(truncate(row.Kind, kindRoom))
-		}
-		rows = append(rows, head)
-		for _, line := range wrapText(row.What, sentenceWidth, 0) {
-			rows = append(rows, "  "+InfoStyle.Render(line))
+		rows = append(rows, cardRowLines(cardRow{Title: row.Name, Trailing: row.Kind}, width, false)...)
+		for _, line := range wrapText(row.What, max(1, width-grammarRowGutter), 0) {
+			rows = append(rows, MutedStyle.Render(strings.Repeat(" ", grammarRowGutter)+line))
 		}
 	}
 	return rows
@@ -4391,6 +4353,8 @@ func (m Model) referenceEntryRows(table referenceTable, start, end, width int) [
 
 // referenceTableRows draws the three-column table the keymap pages keep: the
 // columns sized from the frame and the page's own keys, every cell in one row.
+// The columns are the page here, so they keep their own measure; what the card
+// gave them is the grammar's header role above them.
 func referenceTableRows(table referenceTable, start, end, width int) []string {
 	longestName := 0
 	for _, row := range table.Rows {
@@ -4398,7 +4362,7 @@ func referenceTableRows(table referenceTable, start, end, width int) []string {
 	}
 	name, kind, what := keymapTableColumns(width, longestName)
 
-	rows := []string{MutedStyle.Render(truncate(padRight(table.Headers[0], name)+" "+
+	rows := []string{TableHeaderStyle.Render(truncate(padRight(table.Headers[0], name)+" "+
 		padRight(table.Headers[1], kind)+" "+table.Headers[2], width))}
 	rows = append(rows, rule(width))
 	for i := start; i < end; i++ {
@@ -4406,28 +4370,6 @@ func referenceTableRows(table referenceTable, start, end, width int) []string {
 		rows = append(rows, KeyStyle.Render(padRight(truncate(row.Name, name), name))+" "+
 			MutedStyle.Render(padRight(truncate(row.Kind, kind), kind))+" "+
 			InfoStyle.Render(truncate(row.What, what)))
-	}
-	return rows
-}
-
-// referenceNameWidth is the columns a learn entry's name column spends: the
-// longest name it holds, capped to a third of the page so a stray long name cannot
-// push the kind off the row.
-func referenceNameWidth(table referenceTable, width int) int {
-	longest := 0
-	for _, row := range table.Rows {
-		longest = max(longest, lipgloss.Width(row.Name))
-	}
-	return min(longest, max(1, width/3))
-}
-
-// referenceRowBudget is the rows a page has for its entries. The three-column
-// shape spends two of the body's rows on its column header and its rule; the
-// two-line shape draws neither, so those two rows go to the entries.
-func (m Model) referenceRowBudget(table referenceTable) int {
-	rows := keymapTableRows(m.Height)
-	if table.TwoLine {
-		rows += 2
 	}
 	return rows
 }
@@ -4522,7 +4464,7 @@ func frameVital(vital string) string {
 func (m Model) renderMenu(description string) string {
 	panels := m.panelsFor()
 	hints := m.panelHints(panels, []installerHint{hintUp, hintDown, hintOpen, hintBack})
-	body, start, end, total := m.menuCardBody(m.GetScreenTitle(), description, 2, hints)
+	body, start, end, total := m.menuCardBody(m.GetScreenTitle(), description, hints)
 
 	// The scroll range is the menu's vital sign in the header. A menu whose list
 	// fits has nothing to report and gets no filler.
@@ -4533,93 +4475,83 @@ func (m Model) renderMenu(description string) string {
 	return m.frame(m.headerName(), vital, body, hints)
 }
 
-// menuCardBody is the body every menu draws, and it is one body so the wizard's
-// own questions and the hubs that follow them cannot be two shapes: the page's
-// title and its description, then the options in the frame's card, windowed
-// around the cursor. The wizard's pickers drew a bare list where the hubs drew a
-// card, so the same question changed shape depending on which screen asked it.
+// menuCardBody is the body every menu draws, and it is one body so the Learn hub,
+// its tool pages, the keymap menus and the LazyVim guide cannot be four shapes:
+// the page's own name as the card's chip, its own description as the caption, the
+// rule under the pair and the options in the card, windowed around the cursor.
 //
-// maxDescRows caps the description's rows; a screen whose description is the
-// question itself passes 0 and keeps as many rows as the frame leaves. Either
-// way the description is what yields: the answers are facts and the prose is not,
-// so a long note is cut -- with the frame's own marker, so the cut is read --
-// rather than allowed to push a row of answers off the screen. The card's window
-// is then measured from the head that is actually drawn, so the two cannot
-// disagree about the frame they share.
-func (m Model) menuCardBody(title, description string, maxDescRows int, hints []installerHint) (body []string, start, end, total int) {
+// It draws through the reference grammar (referenceCard and cardRowLines,
+// reference_cards.go and components.go) -- the same card and the same rows every
+// other screen uses -- so the sentence a menu says about itself and the shape of
+// its rows are the shared vocabulary and not a second one.
+//
+// The card's chrome is three rows -- its top border, the rule under the chip and
+// its bottom border -- where the old shape spent three on the title, the
+// description and the blank under them, so the page keeps the rows it always had and
+// its scroll keys keep their distance. A caption the border row has no room for is
+// moved under the rule by referenceCard, and its rows come off the window first: a
+// narrow frame draws fewer rows rather than one row past its budget.
+func (m Model) menuCardBody(title, description string, hints []installerHint) (body []string, start, end, total int) {
 	l := layoutFor(m)
-	panels := m.panelsFor()
-	width := contentWidth(m)
-	if l.TwoColumn && len(panels) > 0 {
+	width := l.Composition
+	if l.TwoColumn && len(m.panelsFor()) > 0 {
 		width = l.Left
 	}
+	content := cardContentWidth(width)
 	rowsBudget := installerBodyRows(m.Height, m.footerReserveRows(contentWidth(m), hints))
-
-	// The card's chrome: its two borders and the divider each extra group costs.
-	// A hub has at most two separators, so three groups is the tallest shape.
-	const cardChrome = 2 + 2
 	options := m.GetCurrentOptions()
-	desc := wrapDescription(description, width, maxDescRows)
 
-	// The head is the title, the description and the blank that separates them
-	// from the card. It is built against the description it is given so the
-	// overflow can be measured: every row the body is over its budget removes one
-	// row of the description, and the last row keeps the cut marker.
-	build := func(desc []string) []string {
-		head := []string{BrandStyle.Render(title)}
-		for _, line := range desc {
-			head = append(head, MutedStyle.Render(line))
+	// The Learn hub's first section names the card itself: a group title only draws
+	// on the divider before its group, and the first group has no divider above it.
+	// Naming it on the top border is what makes "What the run chooses" label the
+	// rows under it instead of the section after them. The chip asks for that name
+	// only while the whole list fits under it, so a window that starts past the
+	// section is never labelled with it -- and the decision reads the list, not the
+	// cursor, so the card cannot change shape as the cursor walks.
+	cardTitle := title
+	if m.Screen == ScreenLearnTools {
+		head := referenceCardHead(learnSectionChosenTitle, description, width)
+		if len(options) <= max(1, rowsBudget-cardChromeRows-len(head)) {
+			cardTitle = learnSectionChosenTitle
 		}
-		head = append(head, "")
-		visible := rowsBudget - len(head) - cardChrome
-		if visible < 1 {
-			visible = 1
-		}
-		start, end = listWindow(m.Cursor, visible, len(options))
-
-		// The Learn hub's first section names the card itself: a group title only
-		// draws on the divider before the group, and the first group has no divider
-		// above it. Naming it on the top border is what makes "What the run chooses"
-		// label the rows under it instead of the section after them.
-		cardTitle := ""
-		if m.Screen == ScreenLearnTools && start == 0 {
-			cardTitle = "What the run chooses"
-		}
-		return append(head, panelBlockGrouped(cardTitle, width, m.menuCardGroups(options, start, end))...)
 	}
 
-	body = build(desc)
-	for len(body) > rowsBudget && len(desc) > 0 {
-		desc = desc[:len(desc)-1]
-		if len(desc) > 0 {
-			desc[len(desc)-1] = cutToWidth(desc[len(desc)-1], width-lipgloss.Width(cutMarker)) + cutMarker
-		}
-		body = build(desc)
-	}
+	head := referenceCardHead(cardTitle, description, width)
+	room := max(1, rowsBudget-cardChromeRows-len(head))
+	start, end = listWindow(m.Cursor, room, len(options))
+
+	body = referenceCard(cardTitle, description, width, head, m.menuCardGroups(options, start, end, content))
 	return body, start, end, len(options)
 }
 
 // menuCardGroups renders the visible option rows as the groups the card draws:
-// a separator becomes the divider between two groups, never a row of its own.
-// The Learn hub is the one menu whose sections are named, because its two
-// sections answer different questions -- what the run chooses and what it then
-// installs -- and a bare rule between them did not say which was which.
-func (m Model) menuCardGroups(options []string, start, end int) []mainMenuGroup {
-	groups := []mainMenuGroup{{}}
+// a separator becomes the divider between two groups, never a row of its own, and
+// a group the window ends on with no rows under it is dropped so the divider it
+// would draw cannot spend a row the window did not count.
+//
+// The Learn hub is the one menu whose sections are named, because its two sections
+// answer different questions -- what the run chooses and what it then installs --
+// and a bare rule between them did not say which was which.
+func (m Model) menuCardGroups(options []string, start, end, content int) []cardGroup {
+	groups := []cardGroup{{}}
 	for i := start; i < end; i++ {
 		if strings.HasPrefix(options[i], menuSeparatorPrefix) {
-			groups = append(groups, mainMenuGroup{})
+			groups = append(groups, cardGroup{})
 			continue
 		}
 		at := len(groups) - 1
-		groups[at].Lines = append(groups[at].Lines, m.menuRowAt(options, i, m.Cursor))
+		// A row opens the page it names; the way back acts where it stands, so it
+		// keeps its own arrow in the gutter and carries no chevron.
+		groups[at].Lines = append(groups[at].Lines, cardRowLines(cardRow{
+			Title:   options[i],
+			Chevron: !strings.HasPrefix(options[i], "←"),
+		}, content, i == m.Cursor)...)
 	}
-	if m.Screen == ScreenLearnTools && start == 0 {
-		for i := range groups {
-			if i == 1 {
-				groups[i].Title = "What the run installs"
-			}
-		}
+	for len(groups) > 1 && len(groups[len(groups)-1].Lines) == 0 {
+		groups = groups[:len(groups)-1]
+	}
+	if m.Screen == ScreenLearnTools && start == 0 && len(groups) > 1 {
+		groups[1].Title = learnSectionInstalledTitle
 	}
 	return groups
 }
@@ -4722,12 +4654,12 @@ func (m Model) renderLazyVimMenu() string {
 }
 
 // lazyVimTopicLines is the topic's content exactly as the screen draws it: the
-// body, the code example and the tips, each line cut to the frame. The view
-// draws these lines and the scroll keys measure them, so the two cannot disagree
-// about how far the topic scrolls. It was the scroll keys' own, different count
-// that let the closing lines sit behind a bound the renderer never reached.
+// body, the code example and the tips, each line cut to the card's content. The
+// view draws these lines and the scroll keys measure them, so the two cannot
+// disagree about how far the topic scrolls. It was the scroll keys' own, different
+// count that let the closing lines sit behind a bound the renderer never reached.
 func (m Model) lazyVimTopicLines(topic LazyVimTopic) []string {
-	width := contentWidth(m)
+	width := cardContentWidth(layoutFor(m).Composition)
 
 	var allLines []string
 	for _, line := range topic.Content {
@@ -4753,53 +4685,39 @@ func (m Model) lazyVimTopicLines(topic LazyVimTopic) []string {
 	return allLines
 }
 
-// lazyVimTopicBodyFixed is the part of the topic body that is not content: the
-// title, the description and the blank under it. The scroll range moved into the
-// header, so the body no longer spends a held scroll row on it.
-const lazyVimTopicBodyFixed = 3
+// The card the topic is drawn in spends the three rows the old body spent on its
+// title, its description and the blank under them -- its top border, the rule
+// under the chip and its bottom border -- which is why the window arithmetic did
+// not change when the topic took the card. lazyVimTopicRows is the content rows
+// the topic shows (reference_cards.go): the frame minus that chrome and the
+// caption when it moved inside the card. The view and the scroll keys both ask for
+// it, so the window the keys scroll is exactly the window the screen draws -- which
+// is why it has to reserve the footer the frame will actually draw. Because the
+// scroll handler shares this function and has no width to compute the exact packing
+// with, it reserves the footer's worst case, footerMaxRows; the frame caps the
+// footer at that many rows, so the body can never exceed the frame.
 
-// lazyVimTopicRows is the content rows the topic shows: the frame minus the
-// screen's own chrome. The view and the scroll keys both ask for it, so the
-// window the keys scroll is exactly the window the screen draws -- which is why
-// it has to reserve the footer the frame will actually draw. It reserved ONE row
-// while the navigate-page-return hints pack into two at 60 columns, so the body
-// was a row too tall and the frame's last footer row was clipped. Because the
-// scroll handler shares this function and has no width to compute the exact
-// packing with, it reserves the footer's worst case, footerMaxRows; the frame
-// caps the footer at that many rows, so the body can never exceed the frame.
-func lazyVimTopicRows(height int) int {
-	rows := installerBodyRows(height, footerMaxRows) - lazyVimTopicBodyFixed
-	if rows < 1 {
-		rows = 1
-	}
-	return rows
-}
-
-// renderLazyVimTopic renders one topic. Its scroll value IS the top-line offset
-// (0 shows the first line, offsetWindowMax shows the last), so it windows through
-// offsetWindow and its key handler clamps the same value with offsetWindowMax;
-// the topic's closing lines are reachable.
+// renderLazyVimTopic renders one topic in the reference grammar: the topic's own
+// title as the card's chip, its description as the caption and the window of its
+// lines under the rule. Its scroll value IS the top-line offset (0 shows the first
+// line, offsetWindowMax shows the last), so it windows through offsetWindow and its
+// key handler clamps the same value with offsetWindowMax; the topic's closing
+// lines are reachable.
 func (m Model) renderLazyVimTopic() string {
 	if m.SelectedLazyVimTopic >= len(m.LazyVimTopics) {
 		return m.deadEndScreen("Topic not found", "Press [Esc] to return to the guide.")
 	}
 
 	topic := m.LazyVimTopics[m.SelectedLazyVimTopic]
-	l := layoutFor(m)
 	// The topic is prose and belongs on the same centred composition as every
 	// other page, not against the frame's left edge with 227-column lines.
-	width := l.Composition
+	width, _ := m.referenceCardWidth()
 
 	allLines := m.lazyVimTopicLines(topic)
-	viewHeight := lazyVimTopicRows(m.Height)
+	viewHeight := m.lazyVimTopicRows(topic)
 	start, end := offsetWindow(m.LazyVimScroll, viewHeight, len(allLines))
 
-	body := []string{
-		BrandStyle.Render(topic.Title),
-		MutedStyle.Render(truncate(topic.Description, width)),
-		"",
-	}
-
+	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
 		line := allLines[i]
 		// Style code lines differently
@@ -4809,27 +4727,23 @@ func (m Model) renderLazyVimTopic() string {
 			strings.HasPrefix(line, "}"), strings.HasPrefix(line, "  "),
 			strings.HasPrefix(line, "map("), strings.HasPrefix(line, "vim."),
 			strings.HasPrefix(line, "require"):
-			body = append(body, CodeStyle.Render(line))
+			lines = append(lines, CodeStyle.Render(line))
 		case strings.HasPrefix(line, "Example:"), strings.HasPrefix(line, "Tips:"):
-			body = append(body, chip(line))
+			lines = append(lines, chip(line))
 		case strings.HasPrefix(line, "  •"):
-			body = append(body, InkStyle.Render(line))
+			lines = append(lines, InkStyle.Render(line))
 		case strings.HasPrefix(line, "•"):
-			body = append(body, MutedStyle.Render(line))
+			lines = append(lines, MutedStyle.Render(line))
 		default:
 			// Prose is body text, not a status colour: the old InfoStyle made the
 			// guide dimmer than every other page on the same palette.
-			body = append(body, InkStyle.Render(line))
+			lines = append(lines, InkStyle.Render(line))
 		}
 	}
 
-	// The scroll range is the topic's vital sign in the header, so the body does
-	// not need a held scroll row; the scroll reachability tests read the range
-	// back out of the header.
-	indent := strings.Repeat(" ", l.Leading)
-	for i := range body {
-		body[i] = indent + truncate(body[i], width)
-	}
+	// The card is the page's frame now, so the body is not indented here: the
+	// frame centres the composition, exactly as it does for every other card.
+	body := lazyVimTopicCard(topic, lines, width)
 
 	vital := ""
 	if len(allLines) > viewHeight {
@@ -6028,24 +5942,6 @@ func padRight(s string, width int) string {
 		return s + strings.Repeat(" ", gap)
 	}
 	return s
-}
-
-// wrapDescription wraps a screen's description: each line it already breaks is
-// wrapped on its own and the results are joined. A description that holds its own
-// breaks did not draw the rows it measured -- wrapText measures a "\n" as a
-// column and the renderer draws it as a row -- which is how a two-sentence note
-// spent one row more than the body had and pushed the legend off the frame.
-// maxRows caps the total (0 for as many as the text needs) and marks the cut.
-func wrapDescription(description string, width, maxRows int) []string {
-	var rows []string
-	for _, line := range strings.Split(description, "\n") {
-		rows = append(rows, wrapText(line, width, 0)...)
-	}
-	if maxRows > 0 && len(rows) > maxRows {
-		rows = rows[:maxRows]
-		rows[maxRows-1] = cutToWidth(rows[maxRows-1], width-lipgloss.Width(cutMarker)) + cutMarker
-	}
-	return rows
 }
 
 // wrapText wraps text into rows of at most width columns, preferring a space so

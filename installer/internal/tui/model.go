@@ -1585,6 +1585,11 @@ func (m Model) GetScreenTitle() string {
 		return "Learn: Multiplexers"
 	case ScreenLearnNvim:
 		return "Learn: Neovim"
+	case ScreenLearnPrompts:
+		// The prompt menu had no title at all, so its page opened under a blank
+		// heading while the three menus beside it named themselves. It reads as
+		// their sibling now, which is what the hub's row opens.
+		return "Learn: Prompts"
 	case ScreenKeymaps:
 		return "Neovim Keymaps Reference"
 	case ScreenKeymapCategory:

@@ -954,6 +954,181 @@ func TestNvimSelectWideGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Neovim Configuration"))
 }
 
+// TestLearnHubGolden pins the Learn hub in the reference grammar: its first
+// section as the card's chip, the screen's own description as the caption, the
+// rule under the pair, the sentences of the sections' rows as card rows with the
+// row under the cursor filled, and the second section's name on the divider the
+// card draws before it. The rows, their order and the sections they belong to are
+// the hub's own table, unchanged.
+func TestLearnHubGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenLearnTools
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "What the run chooses"))
+}
+
+// TestLearnHubWideGolden pins the same hub at the two-column frame: the card of
+// rows at the left and the panel that answers about the row under the cursor
+// beside it.
+func TestLearnHubWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenLearnTools
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "What the run chooses"))
+}
+
+// TestVimHubGolden pins the Vim hub in the reference grammar: the screen's own
+// title as the card's chip, its own description as the caption, the rule under the
+// pair and every row of the hub as a card row with the one under the cursor filled.
+// The rows, their order and the panel's facts are the hub's own, unchanged.
+func TestVimHubGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenVimHub
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Vim & Neovim"))
+}
+
+// TestVimHubWideGolden pins the same hub at the two-column frame: the card of rows
+// at the left and the panel that answers about the row under the cursor beside it.
+func TestVimHubWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 160
+	m.Height = 48
+	m.Screen = ScreenVimHub
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 48, "Vim & Neovim"))
+}
+
+// TestLearnToolGolden pins one Learn tool page in the reference grammar: the
+// tool's own name as the card's chip, its website as the caption, its description
+// as the card's prose and the two lists under their own titled dividers. Every
+// reason is the page's own sentence, whole.
+func TestLearnToolGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenLearnTerminals
+	m.ViewingTool = "alacritty"
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Pros"))
+}
+
+// TestLearnToolWideGolden pins the same page at the two-column frame: the card
+// with its chip and caption, the prose and the two lists, and the theme's panel
+// absent because this page carries none -- the card is the composition.
+func TestLearnToolWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenLearnTerminals
+	m.ViewingTool = "alacritty"
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Pros"))
+}
+
+// TestLearnTableGolden pins one Learn table in the reference grammar: the table's
+// own name as the card's chip, its description as the caption and every entry as
+// a card row -- the name with its kind trailing at the right edge and the sentence
+// whole under them.
+func TestLearnTableGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenLearnTooling
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Shell tooling"))
+}
+
+// TestLearnTableWideGolden pins the same page at the two-column frame, where the
+// whole table fits the card without scrolling.
+func TestLearnTableWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenLearnTooling
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Shell tooling"))
+}
+
+// TestKeymapTableGolden pins one keymap table in the reference grammar: the
+// category's own name as the card's chip, its description as the caption, the
+// rule under the pair, the column header and the bindings in their three columns.
+// The rows and their keys are the category's own, unchanged.
+func TestKeymapTableGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenKeymapCategory
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Description"))
+}
+
+// TestKeymapTableWideGolden pins the same table at the two-column frame, where the
+// caption rides the border beside the chip and the columns get the composition's
+// width.
+func TestKeymapTableWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenKeymapCategory
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Description"))
+}
+
+// TestLazyVimTopicGolden pins one LazyVim topic in the reference grammar: the
+// topic's own title as the card's chip, its description as the caption and the
+// window of its lines under the rule, the example and the tips keeping the marks
+// they always had.
+func TestLazyVimTopicGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 80
+	m.Height = 24
+	m.Screen = ScreenLazyVimTopic
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "What is LazyVim?"))
+}
+
+// TestLazyVimTopicWideGolden pins the same topic at the composition's full width,
+// where the card is centred and the code example fits a line.
+func TestLazyVimTopicWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := NewModel()
+	isolateGoldenTest(t, &m)
+	m.Width = 160
+	m.Height = 50
+	m.Screen = ScreenLazyVimTopic
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "What is LazyVim?"))
+}
+
 // TestNavigationFlowE2E tests navigating from welcome through menu like Playwright would
 func TestNavigationFlowE2E(t *testing.T) {
 	m := NewModel()
@@ -3163,7 +3338,7 @@ func TestKeymapCategoryLastBindingIsReachable(t *testing.T) {
 	m := installerFrameModel(t, ScreenKeymapCategory)
 	m.SelectedCategory = longKeymapCategory
 	bindings := m.KeymapCategories[longKeymapCategory].Keymaps
-	rows := keymapTableRows(m.Height)
+	rows := m.keymapCategoryRows(m.KeymapCategories[longKeymapCategory])
 	if len(bindings) <= rows {
 		t.Fatalf("category %d has %d bindings, want more than the %d rows the frame shows",
 			longKeymapCategory, len(bindings), rows)
