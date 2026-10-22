@@ -47,6 +47,30 @@ func utilitiesPlain(m Model) string {
 	return ansiEscape.ReplaceAllString(m.View(), "")
 }
 
+// utilitiesRowDrawn reports whether the frame draws the row itself rather than
+// only naming it: the line carries the row's own name and its gutter -- the job's
+// icon, or the cursor's marker where the row under the cursor takes the icon's
+// place. The section's prose names the same jobs in words, and the panel's
+// Selected fact repeats the row under the cursor behind its own marker, so a name
+// found anywhere in the frame is not evidence that the row was drawn.
+func utilitiesRowDrawn(plain string, row utilitiesRow) bool {
+	for _, line := range strings.Split(plain, "\n") {
+		if !strings.Contains(line, row.Title) {
+			continue
+		}
+		if row.Icon != "" && strings.Contains(line, row.Icon) {
+			return true
+		}
+		// utilitiesOverviewFacts draws the row under the cursor as its "Selected"
+		// fact, behind the same marker the row's bar uses; that line is the panel's,
+		// not the row's, so it cannot stand in for it.
+		if strings.Contains(line, grammarMarker) && !strings.Contains(line, "Selected") {
+			return true
+		}
+	}
+	return false
+}
+
 // utilitiesBudget is the rows the section's body may spend, measured the way the
 // renderer measures them: the frame minus its chrome and the footer it reserves.
 func utilitiesBudget(m Model, l layout) int {
@@ -122,14 +146,15 @@ func TestUtilitiesRowsDrawTheMockupsNamesAndDescriptions(t *testing.T) {
 		t.Errorf("the last row is %+v, want the way back with the arrow in its gutter", last)
 	}
 
-	// And the whole list is on screen at this size: the descriptions are drawn,
-	// not just held in the table.
+	// And the whole list is on screen at this size: the rows are drawn, not just
+	// held in the table, and each one is found by its own line rather than by its
+	// name appearing somewhere in the frame.
 	plain := utilitiesPlain(m)
 	for _, row := range rows {
 		if row.Divider {
 			continue
 		}
-		if !strings.Contains(plain, row.Title) {
+		if !utilitiesRowDrawn(plain, row) {
 			t.Errorf("the frame does not draw the row %q:\n%s", row.Title, plain)
 		}
 		if row.Subtitle != "" && !strings.Contains(plain, row.Subtitle) {
@@ -491,10 +516,15 @@ func TestUtilitiesFloorKeepsTheCardAndTheFacts(t *testing.T) {
 	if !strings.Contains(plain, "System Overview") {
 		t.Errorf("the floor draws no summary of the panel:\n%s", plain)
 	}
-	for _, want := range []string{"Debian/Ubuntu", "zsh"} {
-		if !strings.Contains(plain, want) && !strings.Contains(plain, "Linux") {
-			t.Errorf("the floor's summary does not state %q:\n%s", want, plain)
-		}
+	// The summary states the machine's own facts: an operating system (the
+	// fixture's host is Linux, while a distribution reports its own name) and the
+	// shell the run would configure. They are asked separately so the OS fallback
+	// cannot stand in for a shell the summary dropped.
+	if !strings.Contains(plain, "Debian/Ubuntu") && !strings.Contains(plain, "Linux") {
+		t.Errorf("the floor's summary does not state the machine's operating system:\n%s", plain)
+	}
+	if !strings.Contains(plain, "zsh") {
+		t.Errorf("the floor's summary does not state the shell:\n%s", plain)
 	}
 	if strings.Contains(plain, "… and ") {
 		t.Errorf("the floor cut a block with the marker, so a row or a reason was pushed past it:\n%s", plain)

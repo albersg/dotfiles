@@ -70,9 +70,9 @@ func TestPickerQuestionsDrawTheFramesCard(t *testing.T) {
 	}
 }
 
-// TestPickerQuestionsKeepTheirKeysAndTheirWayOut pins the footer the wizard's
+// TestPickerQuestionsKeepTheirKeysAndTheirWays pins the footer the wizard's
 // questions promise: the arrows, Enter for the answer, and the way back. The card
-// changed the body and nothing else.
+// may change the body; the keys it names are the guard's.
 func TestPickerQuestionsKeepTheirKeysAndTheirWays(t *testing.T) {
 	for _, name := range pickerScreens {
 		name := name
@@ -108,7 +108,8 @@ func rowAppearsBetween(lines []string, label string, top, bottom int) bool {
 // TestDeadEndsWearTheFrame pins the one shape the program was missing: a screen
 // with nothing to show used to be two bare lines -- no header chip, no state and
 // no legend -- which is what the frame exists to prevent. Every dead end now
-// carries the chrome, and the way out is the legend's, said once.
+// carries the chrome, says its own reason and takes its way out from the legend,
+// said once.
 func TestDeadEndsWearTheFrame(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -122,9 +123,12 @@ func TestDeadEndsWearTheFrame(t *testing.T) {
 		}, "Tool not found"},
 		{"a topic with no page", func(t *testing.T) Model {
 			m := installerFrameCase(t, "lazyvim-topic")
-			m.ViewingTool = "no-such-topic"
+			// The topic screen reads the index, not ViewingTool: a tool key
+			// here left the case drawing a real topic instead of the dead end it
+			// claims to pin.
+			m.SelectedLazyVimTopic = len(m.LazyVimTopics)
 			return m
-		}, "LazyVim topic"},
+		}, "Topic not found"},
 		{"a restore with no backup", func(t *testing.T) Model {
 			m := installerFrameCase(t, "restore-confirm")
 			m.AvailableBackups = nil
@@ -139,6 +143,10 @@ func TestDeadEndsWearTheFrame(t *testing.T) {
 			m := c.build(t)
 			m.Width, m.Height = 80, 24
 			view := m.View()
+
+			if !strings.Contains(view, c.want) {
+				t.Errorf("the dead end does not say %q:\n%s", c.want, view)
+			}
 
 			// The chrome: the header's chip, its rule, the state and the legend.
 			if !strings.Contains(view, m.headerName()) {

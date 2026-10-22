@@ -36,9 +36,10 @@ import (
 //     is left empty rather than invented.
 
 const (
-	// utilitiesUpdatesRow is the section's row for this screen. It names what the
-	// screen does rather than the feature, in the same voice as the section's
-	// other rows.
+	// utilitiesUpdatesRow is the section's row for this screen: the mockup's own
+	// name for the installed tools the screen reads and updates, with the action as
+	// the row's subtitle ("Check latest versions"), in the same voice as the
+	// section's other subtitles.
 	utilitiesUpdatesRow = "Installed Tools"
 
 	// The rows of the screen itself, by prefix where the label carries a count or

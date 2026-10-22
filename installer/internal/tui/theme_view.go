@@ -295,9 +295,14 @@ func (m Model) themePickerShapeFor(budget int, l layout) themePickerShape {
 
 	if m.pickerActivity() != nil {
 		// The result of a press owns the rows under the list: the tip and the notice
-		// give way to it, and the list keeps every theme, because a press is not a
-		// navigation. The slot is bounded above so it cannot become a second screen
-		// and below so the pending line and its result are never cut to two rows.
+		// give way to it. The slot's height is a function of the rows left and the
+		// number of themes, so the pending line and its result occupy the same rows
+		// whatever the activity says. Where the frame has room for the whole list
+		// and the slot, the list keeps every theme; where it has not, the list gives
+		// up the slot's rows -- themeActivitySlotFloor's five at least -- and windows
+		// around the cursor, which a press never moves. The slot is bounded above so
+		// it cannot become a second screen and below so the result is never cut to
+		// two rows.
 		shape.Activity = min(themeActivitySlotFor(room, len(cards)), max(0, room-sectionMinEntryRows))
 		shape.Notice = 0
 		shape.ListRows = max(1, room-shape.Activity)

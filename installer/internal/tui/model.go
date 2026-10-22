@@ -1291,8 +1291,9 @@ func (m Model) GetCurrentOptions() []string {
 		utilities = append(utilities, utilitiesNetworkRow)
 		// The port and process manager changes nothing until a stop is confirmed on
 		// its own screen, so it is offered unconditionally: reading what holds a port
-		// is always safe, and a platform with no reader says so in the screen's own
-		// body instead of the row vanishing.
+		// is always safe, a reading on a platform whose readers cannot answer still
+		// opens the screen, and the reading's declared limits are shown against the
+		// row they qualify.
 		utilities = append(utilities, utilitiesPortRow)
 		// The doctor is read-only until a fix is confirmed, and it is offered
 		// everywhere: there is always a machine to diagnose. It sits last, so it

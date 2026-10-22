@@ -2656,8 +2656,11 @@ const utilitiesDiskCleanerRow = "Clean Dev Caches"
 const utilitiesVerifyRow = "Check the machine against the last install"
 
 // utilitiesPortRow is the section's row for the port and process manager. It is
-// offered everywhere: reading what holds a port is always safe, and a platform
-// with no reader says so in the screen's own body rather than the row vanishing.
+// offered everywhere because reading what holds a port is always safe: a platform
+// whose readers cannot answer still opens the screen, the reading's declared
+// limits are shown against the row they qualify (portDetailLines, portFacts), and
+// a reading with no sockets says the list matched none rather than the row
+// vanishing.
 const utilitiesPortRow = "Find Available Port"
 
 // The rows the arrow keys act on. The indices are part of the screen's contract:

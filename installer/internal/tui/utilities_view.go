@@ -397,6 +397,11 @@ func (m Model) utilitiesRowLines(row utilitiesRow, selected bool, shape utilitie
 // edges are counted once and there is no rule between the rows -- this card groups
 // by description, not by line -- so the arithmetic is the setup table's minus the
 // divider it draws between every pair of rows.
+//
+// A cursor outside the list is read as the first row rather than rejected: the
+// window is a pure function of the heights it is given, and a caller's cursor can
+// still point at a row a previous, longer list held. The clamp only decides this
+// call's window; it never writes back to the model.
 func utilitiesRowWindow(heights []int, cursor, lines int, boxed bool) (start, end int) {
 	if len(heights) == 0 {
 		return 0, 0
@@ -521,7 +526,7 @@ func (m Model) utilitiesOverviewCardTitle() string {
 	if headline == "" {
 		return utilitiesOverviewPanelLabel
 	}
-	return utilitiesOverviewPanelLabel + " " + panelTabSeparator + headline
+	return utilitiesOverviewPanelLabel + panelTabSeparator + headline
 }
 
 // utilitiesSelectedRow is the row the cursor is on, so a panel that answers

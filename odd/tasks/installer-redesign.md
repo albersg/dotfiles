@@ -1737,3 +1737,87 @@ measured it, not with a guard that was relaxed.
 
 Validation was the short loop the three issues name: the three guards, the golden
 set, the `Anim`, `Companion` and shell-audit sets. No full suite, no preflight.
+
+L30. The informational findings of the closed reviews were triaged: T6 (utilities,
+`review-a936b05a007a4b9d`), T7 (theme selector, `review-0ce2625867193a4f`), T9
+(remaining pages, `review-a1147e36ffc35a3a`) and T4 (dashboard, escalated and left
+unvalidated by the user). Every finding was non-blocking and none reopens a review.
+The pass changed comments, test clarity and one separator; no behaviour, no key and
+no datum moved. The three T6/T7/T9 lineages had already been burned to their
+termination records, so each finding was read at the line it names in the worktree
+that raised it (`/tmp/review-t6|t7|t9`) and in the tree it left behind.
+
+- **The utilities summary's separator lost a space.** `utilitiesOverviewCardTitle`
+  joined the panel's name, a space and `panelTabSeparator` -- which is itself
+  `" · "` -- so the collapsed panel's title read `System Overview  · Linux`. It joins
+  with the separator alone now, the same shape the panel layer's own title uses.
+  `TestUtilitiesGolden` was regenerated for the one line that moved; the wide
+  golden, which draws the panel in its own column, did not move.
+- **The floor guard's OS fallback no longer forgives a missing shell.**
+  `TestUtilitiesFloorKeepsTheCardAndTheFacts` asked for the OS and the shell in one
+  loop with `|| strings.Contains(plain, "Linux")` inside it, so a frame that dropped
+  `zsh` passed on the word `Linux` alone. The OS is asked once (a distribution's own
+  name or `Linux`) and the shell separately.
+- **The row guard reads the row, not the prose.** The section's rows are named in
+  its notes and repeated in the panel's Selected fact, so a frame-wide
+  `strings.Contains(plain, row.Title)` could pass with the row itself missing. The
+  new `utilitiesRowDrawn` requires the name and the row's own gutter on one line --
+  its icon, or the cursor's marker where the row under the cursor takes the icon's
+  place -- and does not accept the panel's Selected fact, which repeats the row
+  under the cursor behind the same marker.
+- **`utilitiesRowWindow` documents its clamp.** An out-of-range cursor is read as the
+  first row; the doc says so and says the clamp never writes back to the model.
+- **The port row's comment promises only what the screen draws.** It said a platform
+  with no reader "says so in the screen's own body"; the screen shows the reading's
+  declared limits against the row they qualify (`portDetailLines`,
+  `portFacts`), and a reading with no sockets says the list matched none. The
+  comment at the row (`view.go`) and the one where the section offers it
+  (`model.go`) now say that.
+- **The update row's comment names the row it holds.** It claimed the row "names what
+  the screen does rather than the feature"; the value is `Installed Tools`, the
+  mockup's own name for the feature (L13), and the action is the row's subtitle,
+  "Check latest versions". The comment now says so.
+- **The theme picker's activity branch says what the slot costs.** The comment
+  promised "the list keeps every theme"; `themeActivitySlotFloor` gives those rows up
+  on a frame too short for the list and the slot, which its own doc already says. The
+  branch comment now says the same thing.
+- **`themePickerVisibleCards` documents what it counts.** It counts lines carrying a
+  theme's mark, one theme to a line in the list the window guard reads it in; a grid
+  draws two cards to a line, which the doc now says.
+- **The picker footer guard names itself.** Its doc comment named
+  `TestPickerQuestionsKeepTheirKeysAndTheirWayOut` while the function is
+  `TestPickerQuestionsKeepTheirKeysAndTheirWays`; it names the function it guards and
+  says what it holds (the keys, not the body).
+- **The dead-end guard reads its own `want`.** The field was filled and never read,
+  and the "topic with no page" case set `ViewingTool`, which the topic screen never
+  reads: the case drew a real topic and passed. The case puts
+  `SelectedLazyVimTopic` past the list, every case asserts its message, and the
+  expected copy is the message the screen really draws (`Topic not found`).
+
+Left as they are, each with its reason:
+
+- T6 R2-006 and R3-001 (`TestUtilitiesWideGolden`'s torn row): the window-title
+  escape and the teardown sequences are what `goldenTranscript` pins from teatest's
+  raw stream, in 60 of the 81 snapshots. Stripping them is a harness-wide change, and
+  hand-editing a snapshot is the one thing this pass may not do.
+- T7 R3-001 and T9 R3-001: both are behavioural. The picker's activity slot is
+  sized to zero rows when the rows left are `sectionMinEntryRows` or fewer, so the
+  press's result is dropped while the notice has already given way;
+  `referenceMaxScroll` returns `len(table.Rows)` when the budget cannot hold the last
+  entry, an offset one past the end. Each wants a guard the shape and window
+  arithmetic does not have.
+- T9 R2-001 (`menuCardBody`'s `0` for the description cap): the parameter no longer
+  exists. `renderSelection` calls `menuCardBody(title, description, hints)` and the
+  description is uncapped by construction.
+- T4 R2-001, R3-VHS-FLOOR-OUTPUT and R3-VHS-WIDE-OUTPUT: not applicable to this
+  tree. `1b89e34` removed the GIF capture, so the tapes declare no `Output` by
+  design; each step writes a PNG `Screenshot` and `scripts/screens.sh` owns the
+  path. `vhs/` is also outside this pass's surfaces.
+
+Validation was the short loop: `gofmt -l`, `go vet ./internal/tui`, the utilities and
+theme-picker sets, the picker and dead-end guards, the learn-table window guard, the
+port manager and update center sets and the goldens -- 140 focused tests green,
+`TestUtilitiesGolden` regenerated by the fix it names. No full suite, no preflight.
+The alternate-theme VHS capture stays out of this pass: the seeded HOME does not
+detect the theme switch, so `Enter` opens Diagnose WSL instead of the alternate
+theme, and the capture stays pending.

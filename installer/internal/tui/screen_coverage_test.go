@@ -1387,9 +1387,13 @@ func themePickerMarkedRow(plain string) string {
 	return ""
 }
 
-// themePickerVisibleCards is how many theme rows the frame drew: every card or
-// list row carries the empty mark, and the selected one carries the filled mark
-// instead.
+// themePickerVisibleCards is how many lines carry a theme's mark: an unmarked card
+// or list row carries the empty circle, and the selected one carries the filled
+// circle instead. One line is one theme where the picker draws its list, which is
+// the shape the windowed-list guard reads it in -- at the floors, with the cursor
+// on a theme row, so the frame previews and the status bar's own dot is the filled
+// circle the "Preview mode" exclusion drops. A grid draws two cards to a line, so
+// this counts lines and not cards and is not the count to use there.
 func themePickerVisibleCards(plain string) int {
 	count := 0
 	for _, line := range strings.Split(plain, "\n") {

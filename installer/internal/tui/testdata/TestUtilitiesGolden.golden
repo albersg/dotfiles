@@ -3,7 +3,7 @@
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
                                                                                 
   WSL resources are not adjustable here: Linux is not WSL.                      
-  ╭─ System Overview  · Linux · x86_64 · zsh · apt-get ──────────────────────╮  
+  ╭─ System Overview · Linux · x86_64 · zsh · apt-get ───────────────────────╮  
   │ ▸ Change the dotfiles theme                                              │  
   │  Shell Startup                                                          │  
   │  Installed Tools                                                        │  
