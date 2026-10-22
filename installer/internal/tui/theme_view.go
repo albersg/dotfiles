@@ -408,7 +408,14 @@ func (m Model) themePickerBodyLines(shape themePickerShape) (body []string, star
 	}
 
 	if shape.Activity > 0 {
-		body = append(body, clipLines(activityLines(m.pickerActivity(), shape.Measure, shape.Activity), shape.Activity, shape.Measure)...)
+		// The slot keeps its reserved height whatever the activity says. The wait is
+		// one row and the result it lands on is several, so a block that grew at the
+		// result would make the body taller and the frame's centring would move the
+		// list above it -- the press would still read as two changes, one row of
+		// answers at a time. padRows fills the rest of the slot at its foot, so the
+		// pending line keeps the first row of the slot and the list never moves.
+		slot := clipLines(activityLines(m.pickerActivity(), shape.Measure, shape.Activity), shape.Activity, shape.Measure)
+		body = append(body, padRows(slot, shape.Activity)...)
 	}
 	if shape.Tip {
 		body = append(body, "")

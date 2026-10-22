@@ -1,8 +1,6 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
    Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
-                                                                                
-                                                                                
                        Choose a theme for your installer                        
             This will change the colors and style of the interface.             
                                                                                 
@@ -14,11 +12,13 @@
   ○ Nocturne                                                ██████████████████  
   ○ Rosé Pine                                               ██████████████████  
   Applying the Nocturne theme…                                                  
+                                                                                
+                                                                                
+                                                                                
+                                                                                
   ────────────────────────────────────────────────────────────────────────────  
     [r] Refresh outdated theme files                                            
     ← Back                                                                      
-                                                                                
-                                                                                
                                                                                 
   ● Preview mode ─────────────────────────────────────────────────────────────  
                  ↑/k up • ↓/j down • [Enter] choose • [r] refresh • [Esc] back  [23A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

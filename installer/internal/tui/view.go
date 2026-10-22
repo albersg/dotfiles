@@ -4146,15 +4146,82 @@ func (m Model) renderSelection() string {
 	if card, ok := m.selectionQuestionCard(bodyHints); ok {
 		return m.frame(m.headerName(), m.selectionVital(), card, hints)
 	}
+	if m.selectionAsksQuestion() {
+		return m.frame(m.headerName(), m.selectionVital(), m.selectionCompactBody(bodyHints), hints)
+	}
 	body, _, _, _ := m.menuCardBody(stripStepPrefix(m.GetScreenTitle()), m.GetScreenDescription(), bodyHints)
 
 	return m.frame(m.headerName(), m.selectionVital(), body, hints)
 }
 
+// selectionAsksQuestion reports whether this screen is one of the six questions
+// whose answers have a subtitle to put under their title, and therefore has a card
+// to fall back from. The list is here once so the card's dispatcher and the
+// fallback's dispatcher cannot disagree about which screens are questions.
+func (m Model) selectionAsksQuestion() bool {
+	switch m.Screen {
+	case ScreenOSSelect, ScreenTerminalSelect, ScreenFontSelect, ScreenShellSelect, ScreenWMSelect, ScreenNvimSelect:
+		return true
+	}
+	return false
+}
+
+// selectionCompactBody draws a question in the compact list the card falls back
+// to: the page's own name, its own note under it, and the same answers as one line
+// each inside a plain bordered list.
+//
+// It is deliberately NOT the menu card. The menu's card wears the page's name as
+// the chip on its border, which is the one thing that makes a frame a card: a
+// fallback that drew it would be the card the gate just refused, and a reader (and
+// the guards) would have no way to tell the shape that could not hold its rows from
+// the one that can. So the name is a row here and the border is bare, which is how
+// the pickers drew a question before the grammar took the title onto the border.
+//
+// Nothing is dropped that the frame has room for: every answer is the model's own
+// option in its own order, windowed around the cursor, and the note is the first
+// thing to yield -- prose gives way to the answers, and a cut note keeps the
+// frame's own marker so the cut is read.
+func (m Model) selectionCompactBody(hints []installerHint) []string {
+	l := layoutFor(m)
+	width := l.Composition
+	if l.TwoColumn && len(m.panelsFor()) > 0 {
+		width = l.Left
+	}
+	content := cardContentWidth(width)
+	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, hints))
+	options := m.GetCurrentOptions()
+
+	// The head is the title, the note and the blank that separates them from the
+	// list; the list is the shared card's box, which spends its two borders and the
+	// rule under the top one. Both are built from the note they are given, so the
+	// rows the frame is over budget by can be taken off the note that spent them.
+	build := func(note []string) []string {
+		body := []string{BrandStyle.Render(stripStepPrefix(m.GetScreenTitle()))}
+		for _, line := range note {
+			body = append(body, MutedStyle.Render(line))
+		}
+		body = append(body, "")
+		rows := max(1, budget-len(body)-cardChromeRows)
+		start, end := listWindow(m.Cursor, rows, len(options))
+		return append(body, cardGroups("", "", width, m.menuCardGroups(options, start, end, content))...)
+	}
+
+	note := wrapSectionParagraphs([]string{m.GetScreenDescription()}, width)
+	body := build(note)
+	for len(body) > budget && len(note) > 0 {
+		note = note[:len(note)-1]
+		if len(note) > 0 {
+			note[len(note)-1] = cutToWidth(note[len(note)-1], width-lipgloss.Width(cutMarker)) + cutMarker
+		}
+		body = build(note)
+	}
+	return body
+}
+
 // selectionQuestionCard draws a question in the reference grammar's card, or
 // reports that this screen does not draw one -- or that this frame cannot hold it.
 // The screens that draw a card are the six whose answers have a subtitle to put
-// under the title; the rest keep the compact list.
+// under the title; every other screen of this renderer keeps the menu body.
 func (m Model) selectionQuestionCard(hints []installerHint) ([]string, bool) {
 	switch m.Screen {
 	case ScreenOSSelect:
