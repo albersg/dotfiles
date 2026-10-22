@@ -1913,17 +1913,18 @@ func (m Model) renderUtilities() string {
 }
 
 // utilitiesReasons is the utilities section's body. A row names itself and says
-// what it opens, so the prose carries only what no row can: the desktop switch this
-// host has none of, the theme list that cannot be read, the WSL screens this host
-// cannot open. One sentence per missing job, in the order the rows would have had.
+// what it opens, so the prose carries only what no row can: the theme list that
+// cannot be read, the WSL screens this host cannot open. One sentence per missing
+// job, in the order the rows would have had.
 func (m Model) utilitiesReasons() []string {
 	var reasons []string
-	if !m.ThemeSwitchFound {
-		reasons = append(reasons,
-			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
-	} else {
-		// What the switch will do, and through which desktop's own tool: the line the
-		// section cannot lose, because it names the desktop it detected.
+	// What the switch will do, and through which desktop's own tool: the line the
+	// section cannot lose, because it names the desktop it detected. A host with no
+	// switch adds no line at all. A sentence about the DESKTOP theme sitting above
+	// the row that opens the installer's OWN theme picker read as a verdict on that
+	// picker, which works here either way, so the absent rows are left to speak for
+	// themselves.
+	if m.ThemeSwitchFound {
 		reasons = append(reasons, fmt.Sprintf(
 			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
 				"the setting it replaces in theme.json so the switch can be undone.", m.ThemeSwitch.Name))
@@ -2352,16 +2353,13 @@ func (m Model) dotfilesThemesPending() bool {
 // desktop's store belongs to the desktop's tool.
 func (m Model) utilitiesDescription() []string {
 	var paragraphs []string
-	// The desktop switch, in the sentence that matches whether there is one. When
-	// there is none the sentence says so and names what was looked for, because the
-	// section is what a user reads when a row they expected is not in the list
-	// (TestUtilitiesUnavailableIsAboutTheModelNotTheHost, and the frame arms of
-	// TestUtilitiesUnavailableSaysSoAndFitsTheFrame); the section's own panel states
-	// the same absence in its own entry.
-	if !m.ThemeSwitchFound {
-		paragraphs = append(paragraphs,
-			"No desktop theme switch is available here: no GNOME, KDE or macOS session.")
-	} else {
+	// The desktop switch, in the sentence that names the desktop it detected. A host
+	// with no switch adds no sentence: the rows are simply absent, and a paragraph
+	// about the DESKTOP theme directly above the row that opens the installer's OWN
+	// theme picker read as one verdict on that picker, which works here either way
+	// (TestUtilitiesUnavailableIsQuietAndFitsTheFrame, and
+	// TestUtilitiesUnavailableIsAboutTheModelNotTheHost for the model's half).
+	if m.ThemeSwitchFound {
 		paragraphs = append(paragraphs, fmt.Sprintf(
 			"The desktop theme switch changes the light/dark theme through %s's own tool, and records "+
 				"the setting it replaces in theme.json so the switch can be undone.", m.ThemeSwitch.Name))

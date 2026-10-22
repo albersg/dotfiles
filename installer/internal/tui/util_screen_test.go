@@ -747,8 +747,15 @@ func TestUtilitiesPanelFactsAreDerivedFromTheModelState(t *testing.T) {
 	empty.ShellAudit = shellAuditState{Resolved: true, Reason: "the login shell is not named: $SHELL is empty"}
 	emptyFlat := utilitiesPanelFlat(t, empty)
 	t.Logf("utilities panel, nothing offered:\n%s", emptyFlat)
+	// The panel declares the absence of the jobs the section still lists. The
+	// desktop switch is not one of them: the section draws no row for it, and a
+	// line here saying a DESKTOP theme switch is missing sat one row above the
+	// installer's own theme picker, which works either way, so it read as a
+	// verdict on that picker rather than on the desktop.
+	if strings.Contains(emptyFlat, "No desktop theme switch is available here") {
+		t.Errorf("an empty model's panel still declares the desktop switch it does not have:\n%s", emptyFlat)
+	}
 	for _, absent := range []string{
-		"No desktop theme switch is available here.",
 		"The dotfiles' own theme has not been checked yet.",
 		"The WSL resources are not adjustable here.",
 		"The shell's startup is not measurable here.",

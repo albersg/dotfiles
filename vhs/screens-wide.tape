@@ -50,10 +50,4 @@ Down
 Sleep 700ms
 Screenshot "captures/200x55/06-theme-alt.png"
 
-Enter
-Wait+Screen /Clean Dev Caches/
-Sleep 700ms
-Screenshot "captures/200x55/07-utilities-alt.png"
 
-Escape
-Wait+Screen /Clean Dev Caches/

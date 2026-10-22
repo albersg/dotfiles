@@ -6,32 +6,31 @@
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
+                                                                                                                                                                
   ╭─ System Utilities ─────────────────────────────────────────────────╮  ╭─ Theme and System Styling ───────────────────────── Personalise your environment ╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
   │ ▸ Change the dotfiles theme                                      › │  │ Recolour the dotfiles installer and the system using your preferred theme.       │  
   │   Recolour the installer and the system                            │  │                                                                                  │  
   │  Shell Startup                                                  › │  │ 7 themes are read from the repository; the picker shows each one on the          │  
   │   Measure startup time                                             │  │ interface before it is applied.                                                  │  
-  │  Installed Tools                                                › │  │                                                                                  │  
-  │   Check latest versions                                            │  │ No desktop theme switch is available here: no GNOME, KDE or macOS session.       │  
-  │  Check the machine against the last install                     › │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
-  │   Compare the machine with the record                              │                                                                                        
-  │  SSH Configuration                                              › │  ╭─ System Overview ──────────────────────────────── Information about this machine ╮  
-  │   Manage SSH keys                                                  │  │──────────────────────────────────────────────────────────────────────────────────│  
-  │  Report the terminal capabilities                               › │  │ ▸ Selected           Change the dotfiles theme — Recolour the installer and the  │  
-  │   What this terminal can do                                        │  │                      system                                                      │  
-  │  Clean Dev Caches                                               › │  │  OS                 Linux                                                       │  
-  │   Remove temporary files                                           │  │  Arch               x86_64                                                      │  
-  │  Network Diagnostics                                            › │  │  Shell              zsh                                                         │  
-  │   Check connectivity                                               │  │  Packages           apt-get                                                     │  
-  │  Find Available Port                                            › │  │  Home               /home/testuser                                              │  
-  │   Find an open port                                                │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
-  │  Diagnostics                                                    › │                                                                                        
-  │   Check common issues                                              │  ╭─ Resources ────────────────────────────────────────── Live system resource usage ╮  
-  │  Back                                                           › │  │──────────────────────────────────────────────────────────────────────────────────│  
-  ╰────────────────────────────────────────────────────────────────────╯  │ CPU      █████████░░░░░░░░░░░ 45%                                                │  
-                                                                          │ Memory   █████░░░░░░░░░░░░░░░ 4.2 GiB / 16.0 GiB  26%                            │  
-                                                                          │ Disk     ███████░░░░░░░░░░░░░ 180.8 GiB / 500.0 GiB  36%                         │  
+  │  Installed Tools                                                › │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  │   Check latest versions                                            │                                                                                        
+  │  Check the machine against the last install                     › │  ╭─ System Overview ──────────────────────────────── Information about this machine ╮  
+  │   Compare the machine with the record                              │  │──────────────────────────────────────────────────────────────────────────────────│  
+  │  SSH Configuration                                              › │  │ ▸ Selected           Change the dotfiles theme — Recolour the installer and the  │  
+  │   Manage SSH keys                                                  │  │                      system                                                      │  
+  │  Report the terminal capabilities                               › │  │  OS                 Linux                                                       │  
+  │   What this terminal can do                                        │  │  Arch               x86_64                                                      │  
+  │  Clean Dev Caches                                               › │  │  Shell              zsh                                                         │  
+  │   Remove temporary files                                           │  │  Packages           apt-get                                                     │  
+  │  Network Diagnostics                                            › │  │  Home               /home/testuser                                              │  
+  │   Check connectivity                                               │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  │  Find Available Port                                            › │                                                                                        
+  │   Find an open port                                                │  ╭─ Resources ────────────────────────────────────────── Live system resource usage ╮  
+  │  Diagnostics                                                    › │  │──────────────────────────────────────────────────────────────────────────────────│  
+  │   Check common issues                                              │  │ CPU      █████████░░░░░░░░░░░ 45%                                                │  
+  │  Back                                                           › │  │ Memory   █████░░░░░░░░░░░░░░░ 4.2 GiB / 16.0 GiB  26%                            │  
+  ╰────────────────────────────────────────────────────────────────────╯  │ Disk     ███████░░░░░░░░░░░░░ 180.8 GiB / 500.0 GiB  36%                         │  
                                                                           ╰──────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                                                                 
                                                                           ╭─ Recommended next actions ──────────────────── Make the most of your environment ╮  
@@ -39,7 +38,8 @@
                                                                           │  1  Inspect terminal capabilities to see what features are supported.            │  
                                                                           │  2  Check installed tools and verify your setup.                                 │  
                                                                           │  3  Continue to diagnostics if you're troubleshooting issues.                    │  
-                                                                          ╰────────────────────────]2;dotfiles Installer──────────────────────────────────────────────────────────╯  
+                                                                          ╰────────────────────────────────────────────────────────────────────────────────�]2;dotfiles Installer��─╯  
+                                                                                                                                                                
                                                                                                                                                                 
    /\______/\                                                                                                                                                   
   (          )                                                                                                                                                  

@@ -1315,3 +1315,46 @@ terminals, so the taller card does not overflow the 60x20 floor. Goldens regener
 `TestCompleteCelebrationGolden` and `TestErrorScreenGolden`. The two restore screens
 have no golden; they are held by the shape and data guards and by the E2E reaches
 that already read their final frames.
+
+L26. The utilities section stops announcing the desktop theme switch it does not
+have, on the user's decision: the sentence *"No desktop theme switch is available
+here: no GNOME, KDE or macOS session."* sat directly above the row that opens the
+installer's **own** theme picker, which works under WSL and everywhere else, so two
+"theme"s in one screen read as one verdict on the picker.
+
+- **The sentence is gone from both bodies.** `utilitiesReasons` and
+  `utilitiesDescription` append it when no switch was detected; both now append
+  nothing in that case and keep the detected-desktop sentence unchanged. The theme
+  card's note went with it: `utilitiesThemeCardBody` no longer calls
+  `utilitiesDesktopSwitchNote`, and that function is deleted -- it existed only to
+  copy the section's sentence into the card. Nothing claims a switch is present: the
+  rows are drawn only when one was detected, so the absence is shown by the rows the
+  user did not get, not by prose over the picker.
+- **The panel follows the section.** `utilitiesPanelEntries` used to carry a
+  `Switch` entry with `absent: "No desktop theme switch is available here."`; the
+  entry is now added only when a switch was found, under the section's own condition.
+  A panel line naming the absent DESKTOP switch had the same defect as the sentence,
+  one column over.
+- **The guards were inverted, not dropped.** `TestUtilitiesUnavailableIsAboutTheModelNotTheHost`
+  and the frame arm now known as `TestUtilitiesUnavailableIsQuietAndFitsTheFrame`
+  assert the aviso is absent while keeping what they were for: the first still makes
+  the ambient detection find a switch so the assertions can only be about the model,
+  the second still renders 80x24, 60x20 and 160x50 and fits each frame. The macOS
+  case (`TestUtilitiesAreOfferedOnMacOSWithDefaults`) keeps its "a detected desktop
+  must not be told it has no switch" assertion, `TestTheThemeCardSpeaksForTheThemeTheRowOpens`
+  now requires the card to be silent about the desktop, and the panel guards
+  (`TestUtilitiesPanelFactsAreDerivedFromTheModelState`, `TestMainMenuPanelDescribesTheOptionUnderTheCursor`)
+  require the aviso to be gone from the empty model's panel and from the Utilities
+  row. Goldens regenerated: `TestUtilitiesGolden` and `TestUtilitiesWideGolden`; no
+  other golden carried the sentence.
+- **Four frames nobody would have guessed depend on it.** `panelColumn` draws the
+  main-menu card at the tallest its facts get over *every* row the cursor can be on,
+  so the Utilities row's panel is the list that sets that height. One entry shorter
+  took one row off the card, and the frames that hold it changed even though none of
+  them says the sentence: `TestMainMenuWideGolden` and the three companion goldens
+  (`TestCompanionGoldenFramesTheCreatureAtTickZero`,
+  `TestCompanionGoldenPinsTheFullSpriteAndItsGaze`,
+  `TestCompanionGoldenPinsThePixelSpriteAndItsGaze`). Each differs by that one
+  interior row, moved to the composition's spare row by centring; the creature, the
+  menu's rows and every other card sit where they sat. Verified the other way round
+  too: with the three touched sources taken from HEAD, all four pass.

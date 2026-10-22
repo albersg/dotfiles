@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 )
 
 // ============================================================================
@@ -159,41 +158,19 @@ func (m Model) utilitiesRightColumn(width, budget int) []string {
 // under WSL. That badge described a different switch from the row it sat beside:
 // the row opens the installer's own theme picker, which works whether or not a
 // desktop is running, so the card denied the action drawn directly above it. The
-// desktop switch -- its rows, its keys and its own sentence in the section's
-// reasons -- is unchanged; it just no longer speaks for the installer's theme.
+// card then carried the section's own absence sentence as a note, which repeated
+// the confusion in smaller type: the desktop switch is a different switch from the
+// one the row above opens, and saying so beside that row still read as a verdict on
+// the installer's themes. The card now states the picker's own state and nothing
+// about the desktop; the desktop switch -- its rows, its keys and its own sentence
+// -- is named by the section itself, and only when one was detected.
 func (m Model) utilitiesThemeCardBody(width int) []string {
 	body := []string{InkStyle.Render("Recolour the dotfiles installer and the system using your preferred theme.")}
 	body = append(body, "")
 	for _, line := range wrapText(m.utilitiesThemeState(), width, 0) {
 		body = append(body, MutedStyle.Render(line))
 	}
-	// The desktop switch is a different switch from the row above, and the section
-	// still owes the reader why its rows are absent. The reason is the section's own
-	// sentence -- never a second copy typed here -- and it names the desktop, so it
-	// cannot be read as a verdict on the installer's own themes.
-	if note := m.utilitiesDesktopSwitchNote(); note != "" {
-		body = append(body, "")
-		for _, line := range wrapText(note, width, 0) {
-			body = append(body, MutedStyle.Render(line))
-		}
-	}
 	return body
-}
-
-// utilitiesDesktopSwitchNote is what the card says about the desktop switch this
-// host does not have: the section's own reason, or nothing when a desktop was
-// detected. It is a note and not a warning badge, because nothing on this screen is
-// broken: the installer's theme picker works either way.
-func (m Model) utilitiesDesktopSwitchNote() string {
-	if m.ThemeSwitchFound {
-		return ""
-	}
-	for _, reason := range m.utilitiesReasons() {
-		if strings.Contains(reason, "desktop theme switch") {
-			return reason
-		}
-	}
-	return ""
 }
 
 // utilitiesThemeState is the theme card's one sentence of state. Every case is a

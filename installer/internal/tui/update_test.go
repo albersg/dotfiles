@@ -1024,8 +1024,11 @@ func TestUtilitiesUnavailableIsAboutTheModelNotTheHost(t *testing.T) {
 	if anyOptionContains(m.GetCurrentOptions(), "theme") {
 		t.Errorf("options = %v, want no theme row when the model has no detected desktop", m.GetCurrentOptions())
 	}
-	if plain := ansiEscape.ReplaceAllString(m.View(), ""); !strings.Contains(plain, "No desktop theme switch is available here") {
-		t.Errorf("the section does not say why it offers nothing:\n%s", plain)
+	// The absent rows say it; no sentence does. A line naming the DESKTOP theme
+	// switch read as a verdict on the installer's OWN theme picker, which is
+	// offered here either way, so the section is silent about the desktop.
+	if plain := ansiEscape.ReplaceAllString(m.View(), ""); strings.Contains(plain, "No desktop theme switch is available here") {
+		t.Errorf("the section still explains the missing desktop switch:\n%s", plain)
 	}
 }
 
@@ -1066,11 +1069,14 @@ func TestUtilitiesAreOfferedOnMacOSWithDefaults(t *testing.T) {
 	}
 }
 
-// TestUtilitiesUnavailableSaysSoAndFitsTheFrame pins the honest degradation: on a
-// server, in Termux or in a bare terminal the section names the situation
-// instead of offering a row that would fail, and the screen still fits the
-// terminals the installer claims to support.
-func TestUtilitiesUnavailableSaysSoAndFitsTheFrame(t *testing.T) {
+// TestUtilitiesUnavailableIsQuietAndFitsTheFrame pins the honest degradation: on
+// a server, in Termux or in a bare terminal the section drops the rows that would
+// fail rather than drawing them, and the screen still fits the terminals the
+// installer claims to support. It carried a sentence saying no desktop theme
+// switch was available; the row that opens the installer's OWN theme picker sat
+// under it, so the sentence read as a verdict on a picker that works, and the
+// absent rows now carry the fact alone.
+func TestUtilitiesUnavailableIsQuietAndFitsTheFrame(t *testing.T) {
 	m := utilitiesModel(t, false)
 	if m.ThemeSwitchFound {
 		t.Fatal("this case needs a model with no detected desktop, so the assertion is about the rule and not about the host")
@@ -1087,8 +1093,8 @@ func TestUtilitiesUnavailableSaysSoAndFitsTheFrame(t *testing.T) {
 		m.Width, m.Height = size.width, size.height
 		view := m.View()
 		plain := ansiEscape.ReplaceAllString(view, "")
-		if !strings.Contains(plain, "No desktop theme switch is available here") {
-			t.Errorf("the unavailable section at %s does not say why: %q", size.name, plain)
+		if strings.Contains(plain, "No desktop theme switch is available here") {
+			t.Errorf("the unavailable section at %s still explains the missing desktop switch: %q", size.name, plain)
 		}
 		assertScreenFitsTerminal(t, "utilities-unavailable", size.width, size.height, view)
 	}

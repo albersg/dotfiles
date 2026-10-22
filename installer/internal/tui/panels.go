@@ -1649,15 +1649,20 @@ func (m Model) utilitiesPanelFacts(l layout) []string {
 // themeUndoAvailable, DotfilesThemeRecord, dotfilesThemeOptions and WSLState --
 // so the panel and the section cannot disagree about what is offered.
 func (m Model) utilitiesPanelEntries() []utilitiesPanelEntry {
-	entries := []utilitiesPanelEntry{
+	var entries []utilitiesPanelEntry
+	if m.ThemeSwitchFound {
 		// The section's "Switch to the dark theme" and "Switch to the light
-		// theme" rows, which are one fact: which switch this host has.
-		{
+		// theme" rows, which are one fact: which switch this host has. The rows
+		// exist only where a switch was detected, so the entry does too: a panel
+		// line declaring the absence would name the DESKTOP switch beside the
+		// installer's own theme picker, which works here either way, so it would
+		// read as a verdict on that picker. The absent rows say it better by
+		// simply not being there.
+		entries = append(entries, utilitiesPanelEntry{
 			label:   "Switch",
 			value:   m.ThemeSwitch.Name,
-			absent:  "No desktop theme switch is available here.",
-			offered: m.ThemeSwitchFound,
-		},
+			offered: true,
+		})
 	}
 
 	// The section's "Undo the last theme change" row, offered under the same

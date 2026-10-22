@@ -937,16 +937,22 @@ func TestPanelsForListsWhatEachScreenOffers(t *testing.T) {
 // inside the card are the panel's own, row for row.
 func TestSinglePanelColumnIsThePanelsOwnRows(t *testing.T) {
 	l := narrowPanelLayout()
+	// The card hands its panel the layout inside its own borders, so that is the
+	// width the panel's own rows are measured at. Measuring the reference at the
+	// column's width instead would wrap a value where the card does not and blame
+	// the registry for the difference the card itself is meant to make.
+	inner := l
+	inner.Right = cardContentWidth(l.Right)
 
 	machine := Model{SystemInfo: goldenSystemInfo()}
-	if got, want := cardBodyRows(machine.panelColumn([]panel{machinePanel()}, l, 40)), machine.welcomePanel(l, 40)[panelBodyChromeRows:]; !equalRows(got, want) {
+	if got, want := cardBodyRows(machine.panelColumn([]panel{machinePanel()}, l, 40)), machine.welcomePanel(inner, 40)[panelBodyChromeRows:]; !equalRows(got, want) {
 		t.Errorf("the machine column through the registry differs from its own panel:\nregistry:\n%s\npanel:\n%s",
 			panelText(got), panelText(want))
 	}
 
 	steps := []InstallStep{{Name: "Clone Repository"}, {Name: "Install Dependencies"}}
 	plan := Model{Steps: steps, ExistingConfigs: []string{"nvim: /home/testuser/.config/nvim"}}
-	if got, want := cardBodyRows(plan.panelColumn([]panel{planPanel()}, l, 40)), plan.mainMenuPanel(l, 40)[panelBodyChromeRows:]; !equalRows(got, want) {
+	if got, want := cardBodyRows(plan.panelColumn([]panel{planPanel()}, l, 40)), plan.mainMenuPanel(inner, 40)[panelBodyChromeRows:]; !equalRows(got, want) {
 		t.Errorf("the plan column through the registry differs from its own panel:\nregistry:\n%s\npanel:\n%s",
 			panelText(got), panelText(want))
 	}
@@ -956,9 +962,13 @@ func TestSinglePanelColumnIsThePanelsOwnRows(t *testing.T) {
 // chip's row and the rule under it.
 const panelBodyChromeRows = 2
 
-// cardBodyRows is the rows a card draws inside its border: the top border, the
-// rule under the chip and the closing border are chrome, and what is compared is
-// the body. A block that is not a card is returned whole.
+// cardBodyRows is the rows a card draws inside its border, with the card's own
+// chrome given back: the top border, the rule under the chip and the closing
+// border are chrome, the edge column and the blank column the card keeps inside
+// each edge are chrome, and the blank run that fills a row out to the card's
+// width is the card's and not the panel's. What is left is the caller's own row,
+// down to the columns it indents a wrapped value with -- that indent is the row's
+// content, so it is not given back. A block that is not a card is returned whole.
 func cardBodyRows(rows []string) []string {
 	if len(rows) < cardChromeRows+1 {
 		return rows
@@ -967,12 +977,15 @@ func cardBodyRows(rows []string) []string {
 	if !strings.HasPrefix(plain(rows[0]), "╭") || !strings.HasPrefix(plain(rows[len(rows)-1]), "╰") {
 		return rows
 	}
+	pad := strings.Repeat(" ", grammarCardPad)
 	out := make([]string, 0, len(rows)-cardChromeRows)
 	for _, row := range rows[cardChromeRows-1 : len(rows)-1] {
 		line := plain(row)
 		line = strings.TrimPrefix(line, "│")
+		line = strings.TrimPrefix(line, pad)
 		line = strings.TrimSuffix(line, "│")
-		out = append(out, strings.TrimSpace(line))
+		line = strings.TrimRight(line, " ")
+		out = append(out, line)
 	}
 	// The card reserves the rows its facts can need, so it may end in blank rows;
 	// they are the reservation and not a fact.
@@ -983,15 +996,25 @@ func cardBodyRows(rows []string) []string {
 }
 
 // equalRows compares two rendered blocks by their visible words, so a stylistic
-// difference is not reported as a content difference.
+// difference is not reported as a content difference. The blank run at the right
+// edge of a row is given back on both sides: a card fills every row out to its
+// width and a padded button carries a blank column of its own, so neither is a
+// word on that row.
 func equalRows(a, b []string) bool {
-	return panelText(a) == panelText(b)
+	endsGivenBack := func(rows []string) string {
+		lines := make([]string, len(rows))
+		for i, row := range rows {
+			lines[i] = strings.TrimRight(ansiEscape.ReplaceAllString(row, ""), " ")
+		}
+		return strings.Join(lines, "\n")
+	}
+	return endsGivenBack(a) == endsGivenBack(b)
 }
 
 // TestTabRowNamesThePanelsAndMarksTheActiveOne pins the naming row: every panel
 // the screen offers is named on the one row, the active one in the chip's chrome
-// and the rest in the dim tone, separated by a dim separator. Switching the active
-// index moves the chrome and the facts with it.
+// and the rest as the caption at the right, in the dim tone and joined by the tab
+// row's dot. Switching the active index moves the chrome and the facts with it.
 func TestTabRowNamesThePanelsAndMarksTheActiveOne(t *testing.T) {
 	l := narrowPanelLayout()
 	panels := []panel{
@@ -1016,11 +1039,21 @@ func TestTabRowNamesThePanelsAndMarksTheActiveOne(t *testing.T) {
 	if !strings.Contains(first[0], MutedStyle.Render("Plan")) {
 		t.Errorf("the inactive panel is not dim: %q", first[0])
 	}
-	if !strings.Contains(first[0], MutedStyle.Render(panelTabSeparator)) {
-		t.Errorf("the caption has no dim separator: %q", first[0])
-	}
 	if !strings.Contains(panelText(first), "OS  Linux") {
 		t.Errorf("the first panel's facts are not shown:\n%s", panelText(first))
+	}
+
+	// The caption is one string the card mutes once, so a screen with more than one
+	// panel it is not showing names them all in the same tone and joins them with
+	// the dot. A per-name style would show up here as escapes between the names.
+	three := []panel{
+		testPanel(panelMachine, "Machine", "here", "OS  Linux"),
+		testPanel(panelPlan, "Plan", "next", "Steps  8"),
+		testPanel(panelTip, "Tip", "now", "Did you know?"),
+	}
+	third := Model{}.panelColumn(three, l, 40)
+	if want := MutedStyle.Render("Plan" + panelTabSeparator + "Tip"); !strings.Contains(third[0], want) {
+		t.Errorf("the caption is not one muted run of the panels it is not: %q, want %q", third[0], want)
 	}
 
 	second := Model{PanelIndex: 1}.panelColumn(panels, l, 40)
@@ -1896,9 +1929,15 @@ func TestMainMenuPanelDescribesTheOptionUnderTheCursor(t *testing.T) {
 			row: "Utilities",
 			want: []string{
 				"Selected Utilities",
-				"No desktop theme switch is available here.",
 			},
-			absent: []string{"Steps", "Overwrites", "Newest backup", "Backups", "Modules", "Topics", "Terminals"},
+			absent: []string{
+				"Steps", "Overwrites", "Newest backup", "Backups", "Modules", "Topics", "Terminals",
+				// No desktop was detected here, and the panel says nothing about it: a
+				// line naming the DESKTOP theme switch sat above the installer's own
+				// theme picker and read as a verdict on the picker, which works here
+				// either way. The section's absent rows carry the fact instead.
+				"No desktop theme switch is available here",
+			},
 		},
 		{
 			row: "Exit",

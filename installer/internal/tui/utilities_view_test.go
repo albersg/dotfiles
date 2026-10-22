@@ -530,9 +530,10 @@ func utilitiesCleanDoctorRun() *doctorRun {
 // warned "Not available on this host": the desktop theme switch (GNOME's
 // gsettings, KDE's tool, macOS's defaults) is absent under WSL, but the row above
 // the card opens the installer's OWN theme picker, which works either way. The card
-// denied the action it described. It states the picker's own state now, and the
-// desktop switch is named in the section's own words rather than as a badge over
-// the whole card.
+// denied the action it described. It states the picker's own state now and says
+// nothing about the desktop switch at all -- the badge went first, then the note
+// that repeated the section's absence sentence under it, because a DESKTOP fact
+// printed beside the picker's row still read as a verdict on the picker.
 func TestTheThemeCardSpeaksForTheThemeTheRowOpens(t *testing.T) {
 	defs, err := loadThemeDefinitions(repoRoot(t))
 	if err != nil {
@@ -554,25 +555,20 @@ func TestTheThemeCardSpeaksForTheThemeTheRowOpens(t *testing.T) {
 	if !strings.Contains(plain, themeCardCountSentence(defs)) {
 		t.Errorf("the card does not state how many themes the picker offers (%q):\n%s", themeCardCountSentence(defs), plain)
 	}
-	// The desktop switch is a different fact, and the section's own sentence says so.
-	flat := strings.Join(strings.Fields(plain), " ")
-	if reason := noDesktop.utilitiesDesktopSwitchNote(); reason == "" {
-		t.Error("the section does not name the desktop switch it could not find")
-	} else if !strings.Contains(flat, strings.Join(strings.Fields(reason), " ")) {
-		t.Errorf("the card does not carry the section's own reason %q:\n%s", reason, plain)
+	// Nothing on the screen names the desktop switch this host does not have: the
+	// fact belongs to rows that are absent, not to a sentence over a working picker.
+	if strings.Contains(plain, "No desktop theme switch") {
+		t.Errorf("the theme card still reports the desktop switch beside the picker's row:\n%s", plain)
 	}
 
 	// With a desktop detected the card states the picker's state and says nothing
-	// about a missing switch.
+	// about a missing switch either.
 	target, ok := themeSwitchByID("gnome")
 	if !ok {
 		t.Fatal("the theme switch table no longer holds the gnome entry")
 	}
 	withDesktop := noDesktop
 	withDesktop.ThemeSwitch, withDesktop.ThemeSwitchFound = target, true
-	if note := withDesktop.utilitiesDesktopSwitchNote(); note != "" {
-		t.Errorf("a detected desktop still draws the absence note %q", note)
-	}
 	if strings.Contains(utilitiesPlain(withDesktop), "No desktop theme switch") {
 		t.Errorf("a detected desktop's card says no switch is available:\n%s", utilitiesPlain(withDesktop))
 	}
