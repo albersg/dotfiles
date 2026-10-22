@@ -811,3 +811,21 @@ and the redesign's surfaces: the possession is drawn as a sprite the theme has n
 opinion about, which is what that code's own comment says, and a palette for it is
 a creature-art decision rather than a theme one. `TitleStyle` and `DangerStyle` are
 still unreferenced (above).
+
+L18. User supplied four new reference screens and made them the primary visual
+reference: Home, Utilities, Updates and Shell Startup
+(/tmp/pi-clipboard-344905b0-cf83-4c41-89d5-585ee20013e1.png,
+/tmp/pi-clipboard-563ff061-2bcf-40e8-9ced-1009de3220b2.png,
+/tmp/pi-clipboard-950f6c50-6f0f-4f06-b0e6-2a158fc37c01.png,
+/tmp/pi-clipboard-43e31190-8c48-4fc0-97ed-a6d9643f7bd5.png). Decision: reproduce
+them as faithfully as Bubble Tea/Lip Gloss allow on top of the current work, keep
+every function, key and real datum, keep the theme roles, the 80x24 usability and
+the identity (pixel diamond, wolf, violet, retro), and extend the same language to
+every other screen. The shared grammar they add: a filled chip label plus a
+right-aligned caption on every card, a rule under it, rows with icon/title/subtitle
+and a chevron, filled selection bars with a marker, numbered steps, bordered stat
+boxes, action buttons that carry their key, fact rows with icons, grouped tables
+with a scrollbar, resource bars, the warning badge, and a footer that keeps Ready
+plus a centre status plus the key hints. The audit's P1 functional fixes remain
+valid and are folded into this pass; the audit's P2 cosmetics are superseded.
+
