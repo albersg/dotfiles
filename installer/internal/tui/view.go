@@ -2700,15 +2700,20 @@ const wslDraftZero = "not set (left as it is)"
 // wslOmittedZero is how the recommendation names a key the template omits.
 const wslOmittedZero = "omitted (WSL decides)"
 
-// wslResourceDescription is what the WSL resource screen says about itself: the
-// capacities the recommendation came from, the recommendation and the
-// proportions it follows, what the file holds today, what the memory guard holds
-// on the running machine, what a write preserves, and the one step the screen
-// deliberately does not take.
+// wslResourceDescription is the WSL resource screen's compact body, derived from the
+// facts the wide frame draws: the capacities the recommendation came from, the
+// recommendation and the proportions it follows, what the file holds today, what the
+// memory guard holds on the running machine, what a write preserves, and the one
+// step the screen deliberately does not take.
 func (m Model) wslResourceDescription() []string {
+	return factProse(m.wslResourceFacts())
+}
+
+// wslResourceFacts is that answer as facts.
+func (m Model) wslResourceFacts() []iconFact {
 	state := m.WSLState
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
-		return []string{reason}
+		return []iconFact{{Label: "WSL resources", Value: reason}}
 	}
 
 	// The values come first: the host's capacities, the recommendation, and what
@@ -2721,28 +2726,30 @@ func (m Model) wslResourceDescription() []string {
 	// protection can stop the distribution before the write is ever made. Then the
 	// formula compressed to one sentence, then the file's own rules.
 	plan := state.Plan
-	paragraphs := []string{
-		wslHostParagraph(state.Host),
-		fmt.Sprintf("Recommended for this host: memory %s, processors %s and swap %s.",
-			wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB")),
-		wslCurrentParagraph(state),
+	facts := []iconFact{
+		{Label: "Host", Value: wslHostParagraph(state.Host)},
+		{Label: "Plan", Value: fmt.Sprintf("Recommended for this host: memory %s, processors %s and swap %s.",
+			wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB"))},
+		{Label: "File", Value: wslCurrentParagraph(state)},
 	}
 	// The guard follows the numbers and comes before how to apply them: what it
 	// reports is the running distribution's own limits, and the failure it names
 	// is the one a short frame must not cut.
-	paragraphs = append(paragraphs, wslGuardParagraphs(state.Guard)...)
-	paragraphs = append(paragraphs,
-		"WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal "+
-			"to apply it. This screen does not run it: that would close the session you are working in.",
-		fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, capped so Windows "+
+	for _, paragraph := range wslGuardParagraphs(state.Guard) {
+		facts = append(facts, iconFact{Label: "Memory guard", Value: paragraph})
+	}
+	facts = append(facts,
+		iconFact{Label: "Apply", Value: "WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal " +
+			"to apply it. This screen does not run it: that would close the session you are working in."},
+		iconFact{Label: "Rule", Value: fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, capped so Windows "+
 			"keeps 4 GiB wherever that can be honoured, and floored at half the host, which is what decides on "+
 			"a host too small to honour both; processors are every logical CPU the host reports except one, so "+
 			"Windows keeps one; swap is a quarter of that memory.",
-			wslMemoryStepMB),
-		"Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept "+
-			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> "+
-			"before the write.")
-	return paragraphs
+			wslMemoryStepMB)},
+		iconFact{Label: "Write", Value: "Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept " +
+			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> " +
+			"before the write."})
+	return facts
 }
 
 // wslGuardRepairRow is the screen's row for the memory guard. It is the one row

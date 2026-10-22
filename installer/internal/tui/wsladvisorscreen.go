@@ -274,39 +274,52 @@ func (m Model) wslAdvisorHints() []installerHint {
 	return []installerHint{hintUp, hintDown, hintOpen, hintReread, hintBack}
 }
 
-// wslAdvisorDescription is what the screen says: the environment first, then the finding under the
-// cursor with its evidence, and last what could not be read at all. The order is the reading order:
-// a reader who does not know where they are cannot judge a finding about it.
+// wslAdvisorDescription is the report's compact body, derived from the facts the wide frame draws:
+// the environment first, then the finding under the cursor with its evidence, and last what could not
+// be read at all. The order is the reading order: a reader who does not know where they are cannot
+// judge a finding about it.
 func (m Model) wslAdvisorDescription() []string {
+	return factProse(m.wslAdvisorFacts())
+}
+
+// wslAdvisorFacts is that answer as facts: the environment the report was taken in, the read-only
+// promise, what no reading could establish, and the finding under the cursor as the facts it is.
+func (m Model) wslAdvisorFacts() []iconFact {
 	state := m.WSLAdvisor
 	if !m.wslAdvisorOffered() {
-		return []string{m.wslAdvisorUnavailableReason()}
+		return []iconFact{{Label: "WSL performance", Value: m.wslAdvisorUnavailableReason()}}
 	}
 	if !state.Resolved {
-		return []string{"Reading this instance's mounts, limits, project directories and resolver…"}
+		return []iconFact{{Label: "Reading", Value: "Reading this instance's mounts, limits, project directories and resolver…"}}
 	}
 
-	paragraphs := wslEnvironmentParagraphs(state.Facts)
-	paragraphs = append(paragraphs,
-		"Read-only: nothing on this screen or the ones behind it changes a configuration file, a "+
-			"mount, a virtual disk or a network setting. Each finding says where its change belongs, "+
-			"and the two rows that act are the benchmark, which measures, and the copy, which writes "+
-			"only where you confirm it and never deletes the source.")
+	facts := wslEnvironmentFacts(state.Facts)
+	facts = append(facts, iconFact{Label: "Read-only",
+		Value: "Nothing on this screen or the ones behind it changes a configuration file, a " +
+			"mount, a virtual disk or a network setting. Each finding says where its change belongs, " +
+			"and the two rows that act are the benchmark, which measures, and the copy, which writes " +
+			"only where you confirm it and never deletes the source."})
 
 	if len(state.Facts.Limits) > 0 {
-		paragraphs = append(paragraphs, "What could not be read: "+strings.Join(state.Facts.Limits, " "))
+		facts = append(facts, iconFact{Label: "Not read", Value: factClause(strings.Join(state.Facts.Limits, " "))})
 	}
 
 	if finding, ok := m.selectedFinding(); ok {
-		paragraphs = append(paragraphs, wslFindingParagraphs(finding)...)
+		facts = append(facts, wslFindingFacts(finding)...)
 	}
-	return paragraphs
+	return facts
 }
 
-// wslEnvironmentParagraphs states what this instance is, from the readings and nothing else. Every
-// sentence is omitted rather than filled in when its reading did not happen.
+// wslEnvironmentParagraphs states what this instance is as the compact body's paragraphs. It is the
+// prose of wslEnvironmentFacts, so the floor and the card read one list.
 func wslEnvironmentParagraphs(facts wslAdvisorFacts) []string {
-	var paragraphs []string
+	return factProse(wslEnvironmentFacts(facts))
+}
+
+// wslEnvironmentFacts states what this instance is, from the readings and nothing else. Every fact is
+// omitted rather than filled in when its reading did not happen.
+func wslEnvironmentFacts(facts wslAdvisorFacts) []iconFact {
+	var out []iconFact
 
 	version := "version not reported by the kernel"
 	if facts.Runtime.Version > 0 {
@@ -317,7 +330,7 @@ func wslEnvironmentParagraphs(facts wslAdvisorFacts) []string {
 		distro = "name not in the environment"
 	}
 	release := wslSignalDetail(facts.Runtime, "kernel-release")
-	paragraphs = append(paragraphs, fmt.Sprintf("WSL %s, %s; kernel %s.", distro, version, release))
+	out = append(out, iconFact{Label: "Runtime", Value: fmt.Sprintf("WSL %s, %s; kernel %s.", distro, version, release)})
 
 	var instance []string
 	if facts.CPUs > 0 {
@@ -338,8 +351,8 @@ func wslEnvironmentParagraphs(facts wslAdvisorFacts) []string {
 		instance = append(instance, "no swap")
 	}
 	if len(instance) > 0 {
-		paragraphs = append(paragraphs, "This instance has "+strings.Join(instance, ", ")+
-			". WSL gives the distribution the limit it was configured with, not the Windows host's total.")
+		out = append(out, iconFact{Label: "Instance", Value: "This instance has " + strings.Join(instance, ", ") +
+			". WSL gives the distribution the limit it was configured with, not the Windows host's total."})
 	}
 
 	if name := facts.NativeStorageName(); name != "" {
@@ -350,18 +363,18 @@ func wslEnvironmentParagraphs(facts wslAdvisorFacts) []string {
 		} else if facts.RootDisk.Err != "" {
 			line += "; its space could not be read (" + facts.RootDisk.Err + ")"
 		}
-		paragraphs = append(paragraphs, line+".")
+		out = append(out, iconFact{Label: "Storage", Value: line + "."})
 	}
 	if facts.ProjectDisk.Known && facts.ProjectDisk.Path != facts.RootDisk.Path {
-		paragraphs = append(paragraphs, fmt.Sprintf("The working directory's filesystem holds %s free of %s.",
-			humanBytes(facts.ProjectDisk.FreeBytes), humanBytes(facts.ProjectDisk.TotalBytes)))
+		out = append(out, iconFact{Label: "Project disk", Value: fmt.Sprintf("The working directory's filesystem holds %s free of %s.",
+			humanBytes(facts.ProjectDisk.FreeBytes), humanBytes(facts.ProjectDisk.TotalBytes))})
 	}
 
-	paragraphs = append(paragraphs, "The Windows drives are mounted under "+
-		facts.Conf.Describe(facts.Conf.AutomountRoot, "/mnt")+".")
+	out = append(out, iconFact{Label: "Drives", Value: "The Windows drives are mounted under " +
+		facts.Conf.Describe(facts.Conf.AutomountRoot, "/mnt") + "."})
 	if drives := wslHostMounts(facts.Table); len(drives) > 0 {
-		paragraphs = append(paragraphs, "Windows filesystems mounted in: "+strings.Join(drives, ", ")+
-			". They are recognised by filesystem type, never by a path.")
+		out = append(out, iconFact{Label: "Mounts", Value: "Windows filesystems mounted in: " + strings.Join(drives, ", ") +
+			". They are recognised by filesystem type, never by a path."})
 	}
 
 	if facts.Resolv.Read {
@@ -370,45 +383,51 @@ func wslEnvironmentParagraphs(facts wslAdvisorFacts) []string {
 			if facts.Resolv.LinkTarget != "" {
 				line += ", reached through " + facts.Resolv.LinkTarget
 			}
-			paragraphs = append(paragraphs, line+".")
+			out = append(out, iconFact{Label: "Resolver", Value: line + "."})
 		} else {
-			paragraphs = append(paragraphs, facts.Resolv.Path+" lists no nameserver.")
+			out = append(out, iconFact{Label: "Resolver", Value: facts.Resolv.Path + " lists no nameserver."})
 		}
 	} else if facts.Resolv.Err != "" {
-		paragraphs = append(paragraphs, facts.Resolv.Path+" could not be read: "+facts.Resolv.Err+".")
+		out = append(out, iconFact{Label: "Resolver", Value: facts.Resolv.Path + " could not be read: " + facts.Resolv.Err + "."})
 	}
 
 	if facts.WindowsConfig != nil {
-		paragraphs = append(paragraphs, facts.WindowsConfigPath+" sets "+
-			wslResourcesSummary(*facts.WindowsConfig)+".")
+		out = append(out, iconFact{Label: "Windows config", Value: facts.WindowsConfigPath + " sets " +
+			wslResourcesSummary(*facts.WindowsConfig) + "."})
 	} else if facts.WindowsConfigErr != "" {
-		paragraphs = append(paragraphs, "The Windows-side .wslconfig could not be read: "+
-			facts.WindowsConfigErr+".")
+		out = append(out, iconFact{Label: "Windows config", Value: "The Windows-side .wslconfig could not be read: " +
+			facts.WindowsConfigErr + "."})
 	}
 
 	// The shell's startup has its own measurement in the same section, and this report must not
 	// duplicate it: naming where it lives is how the reader finds it.
-	paragraphs = append(paragraphs, "How long this shell takes to start is a separate measurement: "+
-		utilitiesShellAuditRow+" in this same section.")
+	out = append(out, iconFact{Label: "Shell startup", Value: "How long this shell takes to start is a separate measurement: " +
+		utilitiesShellAuditRow + " in this same section."})
 
-	return paragraphs
+	return out
 }
 
-// wslFindingParagraphs renders one finding: the heading with what it is and where it came from, then
-// the evidence, the consequence, what acting is worth and what to do. A finding with nothing to do
-// omits the last two rather than printing empty labels.
+// wslFindingParagraphs renders one finding as the compact body's paragraphs. It is the prose of
+// wslFindingFacts, so the report and the card name one finding the same way.
 func wslFindingParagraphs(finding wslFinding) []string {
-	paragraphs := []string{fmt.Sprintf("%s — %s (%s; %s).",
-		finding.Title, finding.Severity, finding.Origin, finding.Scope)}
-	paragraphs = append(paragraphs, "Evidence: "+finding.Evidence)
-	paragraphs = append(paragraphs, "Why it matters: "+finding.Why)
+	return factProse(wslFindingFacts(finding))
+}
+
+// wslFindingFacts renders one finding as facts: the heading with what it is and where it came from,
+// then the evidence, the consequence, what acting is worth and what to do. A finding with nothing to
+// do omits the last two rather than printing empty labels.
+func wslFindingFacts(finding wslFinding) []iconFact {
+	facts := []iconFact{{Label: "Finding", Value: fmt.Sprintf("%s — %s (%s; %s).",
+		finding.Title, finding.Severity, finding.Origin, finding.Scope)}}
+	facts = append(facts, iconFact{Label: "Evidence", Value: factClause(finding.Evidence)})
+	facts = append(facts, iconFact{Label: "Why it matters", Value: factClause(finding.Why)})
 	if finding.Benefit != "" {
-		paragraphs = append(paragraphs, "What acting is worth: "+finding.Benefit)
+		facts = append(facts, iconFact{Label: "Benefit", Value: factClause(finding.Benefit)})
 	}
 	if finding.Action != "" {
-		paragraphs = append(paragraphs, "What to do: "+finding.Action)
+		facts = append(facts, iconFact{Label: "What to do", Value: factClause(finding.Action)})
 	}
-	return paragraphs
+	return facts
 }
 
 // wslSignalDetail reads the detail the detection recorded for one signal, so the environment line

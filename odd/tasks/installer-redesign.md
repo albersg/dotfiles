@@ -1445,3 +1445,80 @@ Not taken, and why:
   still rows inside the list rather than the grammar's presses in the card. That is
   the same ten-screen decision the previous entry records: it belongs to whoever
   owns the section renderer.
+
+L28. The SSH screens and the WSL screens state their detail as facts. L27 recorded
+them as the next slice: their cards existed and the detail inside them was prose, so
+the label that names a fact and the value beside it were the same block of
+sentences. They are now one list of `iconFact`s per screen, drawn by
+`iconFactLines` in the card beside the list and by `factProse` in the compact body,
+so the floor and the wide frame read one source. Eleven screens, no other screen
+touched.
+
+- **One registry, two shapes** (`facts_cards.go`). `sectionScreenFacts` answers for
+  the eleven screens -- the seven SSH screens (`sshManagerFacts`, `sshHostFacts`,
+  `sshFormFacts`, `sshKeyFacts`, `sshAgentFacts`, `sshDiagnosticFacts`,
+  `sshTestFacts`) and the four WSL screens (`wslResourceFacts`, `wslAdvisorFacts`,
+  `wslBenchmarkFacts`, `wslMigrationFacts`) -- and every screen's own
+  `...Description()` is now `factProse` of that list. `sectionWideDetailCard` asks
+  `sectionScreenGroups` first and draws `factLines` of it; a screen that is not in
+  the registry keeps its prose untouched, so the registry is the whole gate and no
+  other section screen changed shape.
+- **The prose keeps its own sentences.** `factProse` reads a value that is already a
+  sentence as it stands, introduces a bare value with the label that names it
+  ("Host name: web.example.com  (the client's answer)."), and prints a block under
+  its label one line per paragraph. That is what let the screens keep the copy they
+  were written with: the compact bodies are the same sentences the floor drew,
+  which is why the two WSL floor goldens did not change. The labels are new and
+  they are the only new words: they name the fact ("Files", "Hosts", "Declared",
+  "Memory guard", "Evidence", "Space", "Placed") and never state one.
+- **A block is a block.** A preview, a public key and the client's own output carry
+  their own lines, and wrapping them as one sentence would join lines that mean
+  different things. `factLines` splits those facts out and draws them with the label
+  as the heading and every line at the value column; `factProse` prints them one
+  paragraph each, in the order the plan, the key or the client wrote them. The
+  preview's leading spaces survive, so a diff still reads `- …` against `+ …`.
+- **Nothing was dropped.** Every datum is a field of the model or the screen's own
+  sentence: the SSH manager's files, host counts, Match blocks, read failures, tool
+  versions and write policy; one entry's declared line, read-only reason, effective
+  values with their source, options and public key; the form's plan, file, backup
+  and diff; the key inventory, the selected key's fingerprint, encryption, warnings
+  and public half, and what known_hosts holds; the agent's kind, socket,
+  reachability, identities, notes and the ssh-add caveat; the diagnosis count and
+  the finding under the cursor with its fix and location; the test's command,
+  bounds, promises, outcome, explanation, arguments and bounded output; the WSL
+  resource plan, file, guard report, the memory rule, the write's rules; the
+  advisor's environment, read-only promise, unread limits and the finding's
+  evidence, consequence, benefit and action; the benchmark's bounds, targets,
+  caveat, results, clean-up and contamination; and the copy's every phase.
+- **The measured facts stayed quoted.** `sshEffectiveRows` is now the prose of
+  `sshEffectiveFacts`, so its provenance guards read the same list the card draws,
+  and `wslEnvironmentParagraphs`, `wslFindingParagraphs`,
+  `wslBenchmarkResultsParagraphs` and the five `wslMigration*Paragraphs` are the
+  prose of their facts. The tests that pin a sentence -- the read-only reason, "A
+  private key is never read by this screen", the memory fraction against
+  `wslMemoryRatioDivisor`, the policy's own prose -- are unchanged and green.
+- **The floor keeps the compact renderers.** The card is drawn only where
+  `sectionWide` already held (two columns, a row budget), so 80x24 draws the body it
+  drew before and `TestWSLResourcesGolden` and `TestWSLAdvisorGolden` are unchanged.
+  One guard did move: `TestScreenWSLResourcesShowsTheHostNumbersAndTheRecommendation`
+  now reads `wsl --shutdown` from the screen's own sentence instead of from the
+  glyphs, because the card wraps a fact's value at its column and the command can
+  fall across two rows.
+
+Guards. `facts_cards_test.go`: every converted screen is in the registry, every
+fact's label and value is in the card's body, every value reaches the compact body
+whole, a datum changed in the model reaches both shapes and the value it replaced is
+gone from both, the 80x24 floor draws no card and still opens on the first fact, all
+eleven fit every measured terminal, and `factProse`/`factLines` keep the three
+readings (sentence, labelled value, block). No golden was regenerated.
+
+Not taken:
+
+- **The card's rows still cut at the column.** A screen with more facts than its
+  column has rows ends in the frame's cut marker (`… and N more`), which is the
+  card's own contract; the capabilities and verification reports solve it by
+  grouping and counting, and the SSH and WSL screens could too, one screen at a
+  time. Nothing is lost from the model or the compact body.
+- **The action rows** are still rows inside the list, and the wide goldens for these
+  eleven screens are not pinned yet -- both belong to the section renderer's owner,
+  as L27 records.

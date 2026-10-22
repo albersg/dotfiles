@@ -229,9 +229,12 @@ func (m Model) sectionWideListCard(entries, tail []string, width, budget int) ([
 	return card(m.sectionWideTitle(), "", width, body), start, end
 }
 
-// sectionWideDetailCard draws the right column's card: the screen's own prose,
+// sectionWideDetailCard draws the right column's card: the screen's own detail,
 // cut to the rows the frame leaves with the usual marker, and the screen's own
-// notice under it.
+// notice under it. The detail is the screen's facts where it has them
+// (facts_cards.go) -- the label at its column and the value beside it, drawn by
+// iconFactLines -- and its prose everywhere else, in the same words the compact
+// body draws.
 //
 // The card holds the rows the column was given, not the rows the current prose
 // happens to need. A section screen's prose follows the cursor -- the disk
@@ -251,10 +254,21 @@ func (m Model) sectionWideDetailCard(paragraphs []string, screenNotice string, w
 	if len(notice) > 0 {
 		fixed += grammarGap + len(notice)
 	}
-	prose := inkParagraphs(wrapSectionParagraphs(paragraphs, content))
-	prose = clipLines(prose, max(1, budget-fixed), content)
 
-	body := append([]string{}, prose...)
+	// A screen whose detail is a list of facts draws them as the grammar's rows
+	// (facts_cards.go): the label that names the fact at its fixed column and the
+	// value wrapped beside it, so the card and the compact body are one source. The
+	// prose path below stays for every screen that still writes its detail as
+	// sentences.
+	body := []string{}
+	if groups, ok := m.sectionScreenGroups(content); ok {
+		for _, group := range groups {
+			body = append(body, group.Lines...)
+		}
+	} else {
+		body = append(body, inkParagraphs(wrapSectionParagraphs(paragraphs, content))...)
+	}
+	body = clipLines(body, max(1, budget-fixed), content)
 	if len(notice) > 0 {
 		if len(body) > 0 {
 			body = append(body, "")

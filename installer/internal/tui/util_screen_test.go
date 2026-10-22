@@ -255,13 +255,21 @@ func TestScreenWSLResourcesShowsTheHostNumbersAndTheRecommendation(t *testing.T)
 		"3072 MB",                       // the recommended swap, a quarter of that memory
 		"4096MB",                        // what the file holds today, as the file writes it
 		"/mnt/c/Users/alber/.wslconfig", // where the file is
-		"wsl --shutdown",                // the effect, and the command the screen does not run
+		"Apply",                         // the fact that carries the effect
+		"WSL reads .wslconfig",          // and its sentence, up to the command it names
 		"Memory: 12288 MB",              // the draft, as a row
 		"Processors: 7",                 // the draft, as a row
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the WSL resources screen does not show %q:\n%s", want, view)
 		}
+	}
+	// The command is a datum of the screen's own sentence. The card wraps a fact's
+	// value at its column, so the phrase can be split across two rows; the guard
+	// reads it from the sentence both shapes are drawn from rather than from the
+	// glyphs a particular frame happened to break.
+	if body := strings.Join(m.wslResourceDescription(), " "); !strings.Contains(body, "wsl --shutdown") {
+		t.Errorf("the WSL resources screen does not name the command it does not run:\n%s", body)
 	}
 	if strings.Contains(view, "{{") {
 		t.Errorf("a template delimiter reached the screen:\n%s", view)

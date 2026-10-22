@@ -575,19 +575,27 @@ func (m Model) sshTestRows() []string {
 // ---------------------------------------------------------------------------
 
 // sshManagerDescription is what the section says about the machine it is looking
-// at: how many hosts the client would use, where they come from, which of them
-// this tool owns, and what the client and its tools are. Every fact is stated
-// with its source, because a report that hides where a number came from is a
-// report nobody can check.
+// at, in the compact body the 80x24 floor draws. It is the prose the facts derive
+// (factProse), so the floor and the wide frame cannot state one fact two ways.
 func (m Model) sshManagerDescription() []string {
+	return factProse(m.sshManagerFacts())
+}
+
+// sshManagerFacts is that answer as facts: how many hosts the client would use,
+// where they come from, which of them this tool owns, and what the client and its
+// tools are. Every fact is stated with its source, because a report that hides
+// where a number came from is a report nobody can check. The manager has not been
+// read yet when its state is nil, and that is a fact too.
+func (m Model) sshManagerFacts() []iconFact {
 	if m.SSH.Manager == nil {
-		return []string{"Reading the SSH client configuration: the client's own answer, the files it reads and the keys on this machine."}
+		return []iconFact{{Label: "Reading", Value: "Reading the SSH client configuration: the client's own answer, the files it reads and the keys on this machine."}}
 	}
 	mgr := m.SSH.Manager
-	var paragraphs []string
+	var facts []iconFact
 
 	if m.SSH.HostsErr != "" {
-		paragraphs = append(paragraphs, "The configuration could not be read: "+m.SSH.HostsErr)
+		facts = append(facts, iconFact{Label: "Read error",
+			Value: "The configuration could not be read: " + strings.TrimSuffix(m.SSH.HostsErr, ".") + "."})
 	} else {
 		managed := 0
 		readOnly := 0
@@ -599,25 +607,27 @@ func (m Model) sshManagerDescription() []string {
 				readOnly++
 			}
 		}
-		files := sshReadFiles(m.SSH.ConfigFiles)
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"The client reads %s. %s; %d of them are managed by this tool, and %d more are shown read-only because editing them would mean rewriting somebody else's file.",
-			files, sshHostCountLabel(len(m.SSH.Hosts)), managed, readOnly))
+		facts = append(facts,
+			iconFact{Label: "Files", Value: "The client reads " + sshReadFiles(m.SSH.ConfigFiles) + "."},
+			iconFact{Label: "Hosts", Value: fmt.Sprintf(
+				"%s; %d of them are managed by this tool, and %d more are shown read-only because editing them would mean rewriting somebody else's file.",
+				sshHostCountLabel(len(m.SSH.Hosts)), managed, readOnly)})
 		if m.SSH.MatchBlocks > 0 {
-			paragraphs = append(paragraphs, fmt.Sprintf(
+			facts = append(facts, iconFact{Label: "Match", Value: fmt.Sprintf(
 				"%d Match %s are evaluated by the client with criteria this report cannot fully reproduce; the entries inside them are shown as they are declared.",
-				m.SSH.MatchBlocks, sshPlural(m.SSH.MatchBlocks, "block", "blocks")))
+				m.SSH.MatchBlocks, sshPlural(m.SSH.MatchBlocks, "block", "blocks"))})
 		}
 		for _, failure := range m.SSH.ConfigFailures {
-			paragraphs = append(paragraphs, "Reading the configuration: "+failure)
+			facts = append(facts, iconFact{Label: "Configuration",
+				Value: "Reading the configuration: " + strings.TrimSuffix(failure, ".") + "."})
 		}
 	}
 
-	paragraphs = append(paragraphs, sshToolSummary(mgr))
-	paragraphs = append(paragraphs, fmt.Sprintf(
+	facts = append(facts, iconFact{Label: "Tools", Value: sshToolSummary(mgr)})
+	facts = append(facts, iconFact{Label: "Writes", Value: fmt.Sprintf(
 		"This tool writes inside its own block in %s, and it rewrites an entry your own configuration already declares only when you ask it to. Either way: a backup beside the file first, the client's own parser validating the new text, and every line the change does not name left byte-for-byte as it is.",
-		sshManagerPath(mgr)))
-	return paragraphs
+		sshManagerPath(mgr))})
+	return facts
 }
 
 // sshReadFiles names the files the client would read, in the order it reads
@@ -680,62 +690,80 @@ func sshPlural(n int, one, many string) string {
 	return many
 }
 
-// sshHostDescription is one entry's detail: the client's effective answer, where
-// each value came from, what the entry declares, and every caveat -- the reason
-// it cannot be edited, the criteria that were not evaluated, and the client's own
-// refusal to answer.
+// sshHostDescription is one entry's detail in the compact body, derived from the
+// facts the wide frame draws: the client's effective answer, where each value came
+// from, what the entry declares, and every caveat -- the reason it cannot be
+// edited, the criteria that were not evaluated, and the client's own refusal to
+// answer.
 func (m Model) sshHostDescription() []string {
+	return factProse(m.sshHostFacts())
+}
+
+// sshHostFacts is that detail as facts: one fact per value the client answered and
+// one per caveat, so the card and the prose are the same list.
+func (m Model) sshHostFacts() []iconFact {
 	host, ok := m.sshSelectedHost()
 	if !ok {
-		return []string{"No entry is selected. Go back to the list and choose one."}
+		return []iconFact{{Label: "Selection", Value: "No entry is selected. Go back to the list and choose one."}}
 	}
-	var paragraphs []string
+	var facts []iconFact
 
 	declared := fmt.Sprintf("Declared in %s:%d", sshShortPath(m.SSH.Manager, host.File), host.Line)
 	if host.Managed {
 		declared += ", inside the block this tool manages"
 	}
-	paragraphs = append(paragraphs, declared+".")
+	facts = append(facts, iconFact{Label: "Declared", Value: declared + "."})
 
 	if host.ReadOnly != "" {
-		paragraphs = append(paragraphs, "Shown read-only: "+host.ReadOnly)
+		facts = append(facts, iconFact{Label: "Shown read-only", Value: factClause(host.ReadOnly)})
 	}
 
 	eff := m.SSH.Detail
 	if m.SSH.DetailErr != "" {
-		paragraphs = append(paragraphs, "The client could not be asked about this entry: "+m.SSH.DetailErr)
+		facts = append(facts, iconFact{Label: "Client",
+			Value: "The client could not be asked about this entry: " + strings.TrimSuffix(m.SSH.DetailErr, ".") + "."})
 	} else {
-		paragraphs = append(paragraphs, sshEffectiveRows(m.SSH.Manager, eff)...)
+		facts = append(facts, sshEffectiveFacts(m.SSH.Manager, eff)...)
 	}
 	for _, warning := range eff.Warnings {
-		paragraphs = append(paragraphs, "Note: "+warning)
+		facts = append(facts, iconFact{Label: "Note", Value: factClause(warning)})
 	}
 
 	if len(host.Options) > 0 {
-		paragraphs = append(paragraphs, fmt.Sprintf(
+		facts = append(facts, iconFact{Label: "Options", Value: fmt.Sprintf(
 			"The entry itself declares %d %s: %s.", len(host.Options),
-			sshPlural(len(host.Options), "option", "options"), sshOptionList(host.Options, 6)))
+			sshPlural(len(host.Options), "option", "options"), sshOptionList(host.Options, 6))})
 	}
 	if pub := m.sshDetailPublicKey(); pub != "" {
-		paragraphs = append(paragraphs, "Public key ("+sshFirstIdentity(m.SSH.Manager, eff)+"):", pub)
+		facts = append(facts, iconFact{
+			Label: "Public key",
+			Value: "(" + sshFirstIdentity(m.SSH.Manager, eff) + ") " + pub,
+		})
 	}
-	return paragraphs
+	return facts
 }
 
-// sshEffectiveRows renders the effective values with their source. A value the
-// client answered is named as the client's answer; one this package resolved is
-// named with its file and line, which is the part the client does not report.
+// sshEffectiveRows renders the effective values with their source as the compact
+// body's paragraphs. It is the prose of sshEffectiveFacts, so the provenance guards
+// and the wide card read one list.
 func sshEffectiveRows(mgr *sshcfg.Manager, eff sshcfg.Effective) []string {
-	rows := []string{}
+	return factProse(sshEffectiveFacts(mgr, eff))
+}
+
+// sshEffectiveFacts is the effective configuration as facts. A value the client
+// answered is named as the client's answer; one this package resolved is named
+// with its file and line, which is the part the client does not report.
+func sshEffectiveFacts(mgr *sshcfg.Manager, eff sshcfg.Effective) []iconFact {
+	facts := []iconFact{}
 	// The source is looked up by the key the effective configuration files the value
 	// under, not by the label: a label is written for a person ("Jump host") and the
 	// key is what the resolver records ("proxyjump"), so deriving one from the other
-	// is how a row quietly loses its source.
+	// is how a fact quietly loses its source.
 	add := func(label, key, value string) {
 		if strings.TrimSpace(value) == "" {
 			return
 		}
-		rows = append(rows, fmt.Sprintf("%s: %s%s", label, value, sshSourceSuffix(mgr, eff, key)))
+		facts = append(facts, iconFact{Label: label, Value: value + sshSourceSuffix(mgr, eff, key)})
 	}
 	add("Host name", "hostname", eff.HostName)
 	add("User", "user", eff.User)
@@ -746,10 +774,11 @@ func sshEffectiveRows(mgr *sshcfg.Manager, eff sshcfg.Effective) []string {
 	if eff.ProxyJump != "" {
 		add("Jump host", "proxyjump", eff.ProxyJump)
 	}
-	if len(rows) == 0 {
-		rows = append(rows, "The client's answer named no host name, user, port or identity for this entry.")
+	if len(facts) == 0 {
+		facts = append(facts, iconFact{Label: "Client",
+			Value: "The client's answer named no host name, user, port or identity for this entry."})
 	}
-	return rows
+	return facts
 }
 
 // sshSourceSuffix is where a value came from, in words: the client's own answer,
@@ -801,101 +830,130 @@ func sshFirstIdentity(mgr *sshcfg.Manager, eff sshcfg.Effective) string {
 	return sshShortPath(mgr, eff.IdentityFiles[0])
 }
 
-// sshFormDescription is what the form says about itself: which file the entry
-// will go to, and every reason the entry could not be written as it stands. The
-// reasons are the write layer's own validation, so the screen and the writer
-// cannot disagree about what is acceptable.
+// sshFormDescription is the form's compact body, derived from the facts the wide
+// frame draws: which file the entry will go to, and every reason the entry could
+// not be written as it stands. The reasons are the write layer's own validation,
+// so the screen and the writer cannot disagree about what is acceptable.
 func (m Model) sshFormDescription() []string {
+	return factProse(m.sshFormFacts())
+}
+
+// sshFormFacts is that answer as facts: the plan's own summary, file, backup and
+// preview when a plan exists, and otherwise the mode's own sentence followed by one
+// fact per refusal.
+func (m Model) sshFormFacts() []iconFact {
 	if m.SSH.Plan != nil {
-		return sshPlanDescription(m.SSH.Plan)
+		return sshPlanFacts(m.SSH.Plan)
 	}
-	var paragraphs []string
+	var facts []iconFact
 	switch m.SSH.FormMode {
 	case "create":
-		paragraphs = append(paragraphs, fmt.Sprintf(
+		facts = append(facts, iconFact{Label: "Create", Value: fmt.Sprintf(
 			"A new entry is written inside the block this tool manages in %s. Everything outside that block is left byte-for-byte as it is.",
-			sshManagerPath(m.SSH.Manager)))
+			sshManagerPath(m.SSH.Manager))})
 	case "edit":
-		paragraphs = append(paragraphs, fmt.Sprintf(
+		facts = append(facts, iconFact{Label: "Edit", Value: fmt.Sprintf(
 			"Editing %s in place: only the lines whose value changes are rewritten, and the entry's other options and comments stay where they are.",
-			m.SSH.Form.EditTarget))
+			m.SSH.Form.EditTarget)})
 	case "duplicate":
-		paragraphs = append(paragraphs, fmt.Sprintf(
+		facts = append(facts, iconFact{Label: "Duplicate", Value: fmt.Sprintf(
 			"Duplicating %s: the copy is written as a new entry this tool manages, and the original is left alone.",
-			m.SSH.Form.EditTarget))
+			m.SSH.Form.EditTarget)})
 	}
 	for _, reason := range m.sshFormRefusals() {
-		paragraphs = append(paragraphs, reason)
+		facts = append(facts, iconFact{Label: "Refused", Value: reason})
 	}
-	return paragraphs
+	return facts
 }
 
-// sshPlanDescription is the confirmation: what the plan would change, where, and
-// the backup it would take first. It is drawn from the plan itself, so the
-// preview and the write cannot describe different changes.
+// sshPlanDescription is the confirmation's compact body, derived from the plan's
+// own facts. It is drawn from the plan itself, so the preview and the write cannot
+// describe different changes.
 func sshPlanDescription(plan *sshcfg.WritePlan) []string {
-	paragraphs := []string{plan.Summary}
-	paragraphs = append(paragraphs, fmt.Sprintf("File: %s", plan.Path))
-	if plan.Backup != "" {
-		paragraphs = append(paragraphs, fmt.Sprintf("A backup is written first, beside the file: %s", plan.Backup))
-	} else {
-		paragraphs = append(paragraphs, "There is nothing to back up: this file does not exist yet.")
-	}
-	paragraphs = append(paragraphs, "The change, in lines:")
-	paragraphs = append(paragraphs, plan.Preview...)
-	return paragraphs
+	return factProse(sshPlanFacts(plan))
 }
 
-// sshKeyDescription is what the key screen says: the directory the keys live in,
-// the selected key's own facts and warnings, the public half in full, and what
-// the known_hosts file holds. The public half is shown rather than copied
-// silently: the screen is the copy that works on a terminal with no clipboard.
+// sshPlanFacts is the confirmation as facts: what the plan would change, where, the
+// backup it would take first, and the lines the change would write. The preview is
+// a block, so its lines keep their own rows in both shapes.
+func sshPlanFacts(plan *sshcfg.WritePlan) []iconFact {
+	facts := []iconFact{{Label: "Plan", Value: plan.Summary}}
+	facts = append(facts, iconFact{Label: "File", Value: plan.Path})
+	if plan.Backup != "" {
+		facts = append(facts, iconFact{Label: "Backup",
+			Value: "A backup is written first, beside the file: " + plan.Backup})
+	} else {
+		facts = append(facts, iconFact{Label: "Backup", Value: "There is nothing to back up: this file does not exist yet."})
+	}
+	if len(plan.Preview) > 0 {
+		facts = append(facts, iconFact{Label: "Preview", Value: strings.Join(plan.Preview, "\n")})
+	}
+	return facts
+}
+
+// sshKeyDescription is the key screen's compact body, derived from the facts the
+// wide frame draws: the directory the keys live in, the selected key's own facts
+// and warnings, the public half in full, and what the known_hosts file holds. The
+// public half is shown rather than copied silently: the screen is the copy that
+// works on a terminal with no clipboard.
 func (m Model) sshKeyDescription() []string {
+	return factProse(m.sshKeyFacts())
+}
+
+// sshKeyFacts is that answer as facts. The three modes state their own promises
+// first, and the list mode states the inventory, the rule it follows, and then the
+// selected key's facts.
+func (m Model) sshKeyFacts() []iconFact {
 	switch m.SSH.KeysMode {
 	case "generate":
-		return []string{
-			"That a key is generated with ssh-keygen using the algorithms this client supports. The passphrase is typed here, handed to ssh-keygen over a pipe, and never written down: it is not stored, logged or put in an argument list.",
-			"The private half is written 0600 and its public half 0644, and an existing pair is replaced only when the switch below is on: Space turns it on and off.",
+		return []iconFact{
+			{Label: "Generate", Value: "That a key is generated with ssh-keygen using the algorithms this client supports. The passphrase is typed here, handed to ssh-keygen over a pipe, and never written down: it is not stored, logged or put in an argument list."},
+			{Label: "Files", Value: "The private half is written 0600 and its public half 0644, and an existing pair is replaced only when the switch below is on: Space turns it on and off."},
 		}
 	case "add":
-		return []string{
-			fmt.Sprintf("Adding %s to the agent. Type the key's passphrase, or leave it empty when the key has none, then press [a] to add it.", m.sshSelectedKeyName()),
-			"The passphrase is handed to ssh-add over a pipe and is never stored, logged or put in an argument list.",
+		return []iconFact{
+			{Label: "Add", Value: fmt.Sprintf("Adding %s to the agent. Type the key's passphrase, or leave it empty when the key has none, then press [a] to add it.", m.sshSelectedKeyName())},
+			{Label: "Passphrase", Value: "The passphrase is handed to ssh-add over a pipe and is never stored, logged or put in an argument list."},
 		}
 	}
 
-	var paragraphs []string
+	var facts []iconFact
 	if m.SSH.KeysErr != "" {
-		paragraphs = append(paragraphs, "The keys could not be listed: "+m.SSH.KeysErr)
+		facts = append(facts, iconFact{Label: "Read error",
+			Value: "The keys could not be listed: " + strings.TrimSuffix(m.SSH.KeysErr, ".") + "."})
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"%d %s and %d %s in %s. A private key is never read by this screen: every fact comes from the public half, from the agent's own listing, or from ssh-keygen.",
-			len(m.SSH.Keys), sshPlural(len(m.SSH.Keys), "key pair", "key pairs"),
-			len(m.SSH.KnownHosts), sshPlural(len(m.SSH.KnownHosts), "known host", "known hosts"),
-			sshManagerDir(m.SSH.Manager)))
+		facts = append(facts,
+			iconFact{Label: "Keys", Value: fmt.Sprintf("%d %s and %d %s in %s.",
+				len(m.SSH.Keys), sshPlural(len(m.SSH.Keys), "key pair", "key pairs"),
+				len(m.SSH.KnownHosts), sshPlural(len(m.SSH.KnownHosts), "known host", "known hosts"),
+				sshManagerDir(m.SSH.Manager))},
+			iconFact{Label: "Rule", Value: "A private key is never read by this screen: every fact comes from the public half, from the agent's own listing, or from ssh-keygen."})
 	}
 
 	if key, ok := m.sshSelectedKey(); ok {
 		if key.Fingerprint != "" {
-			paragraphs = append(paragraphs, fmt.Sprintf("%s: %s, %s.", filepath.Base(key.Path), key.Fingerprint, sshKeyKind(key)))
+			facts = append(facts, iconFact{Label: filepath.Base(key.Path),
+				Value: fmt.Sprintf("%s, %s.", key.Fingerprint, sshKeyKind(key))})
 		}
 		if key.Encrypted == "yes" {
-			paragraphs = append(paragraphs, "The private half is encrypted with a passphrase; the agent needs it before the key can be used.")
+			facts = append(facts, iconFact{Label: "Encrypted",
+				Value: "The private half is encrypted with a passphrase; the agent needs it before the key can be used."})
 		}
 		for _, warning := range key.Warnings {
-			paragraphs = append(paragraphs, "Note: "+warning)
+			facts = append(facts, iconFact{Label: "Note", Value: factClause(warning)})
 		}
 		if key.Public != "" {
-			paragraphs = append(paragraphs, "Public key:", key.Public)
+			facts = append(facts, iconFact{Label: "Public key", Value: key.Public})
 		}
 	}
 
 	if m.SSH.KnownHostsErr != "" {
-		paragraphs = append(paragraphs, "The known hosts could not be read: "+m.SSH.KnownHostsErr)
+		facts = append(facts, iconFact{Label: "Known hosts",
+			Value: "could not be read (" + strings.TrimSuffix(m.SSH.KnownHostsErr, ".") + ")."})
 	} else if len(m.SSH.KnownHosts) > 0 {
-		paragraphs = append(paragraphs, "Known hosts: "+sshKnownHostSummary(m.SSH.KnownHosts))
+		facts = append(facts, iconFact{Label: "Known hosts", Value: sshKnownHostSummary(m.SSH.KnownHosts)})
 	}
-	return paragraphs
+	return facts
 }
 
 // sshKnownHostSummary names what the known_hosts file holds: the spelled-out
@@ -932,78 +990,95 @@ func sshKnownHostSummary(known []sshcfg.KnownHost) string {
 	return summary
 }
 
-// sshAgentDescription is what the agent screen says: which agent it is, how the
-// listing went, and what this particular agent is known not to support. The
-// differences are stated because agents are not interchangeable and promising
-// they were would be the bug.
+// sshAgentDescription is the agent screen's compact body, derived from the facts
+// the wide frame draws: which agent it is, how the listing went, and what this
+// particular agent is known not to support. The differences are stated because
+// agents are not interchangeable and promising they were would be the bug.
 func (m Model) sshAgentDescription() []string {
+	return factProse(m.sshAgentFacts())
+}
+
+// sshAgentFacts is that answer as facts.
+func (m Model) sshAgentFacts() []iconFact {
 	agent := m.SSH.Agent
-	var paragraphs []string
 
 	if !m.SSH.AgentLoaded {
-		return []string{"Asking the agent for the identities it holds."}
+		return []iconFact{{Label: "Agent", Value: "Asking the agent for the identities it holds."}}
 	}
 	if !agent.Advertised {
-		return []string{"No agent is advertised here: SSH_AUTH_SOCK is unset, so no process in this environment can reach one. A key can still be used straight from a file."}
+		return []iconFact{{Label: "Agent", Value: "No agent is advertised here: SSH_AUTH_SOCK is unset, so no process in this environment can reach one. A key can still be used straight from a file."}}
 	}
-	paragraphs = append(paragraphs, fmt.Sprintf("Agent: %s at %s.", agent.Kind, agent.Socket))
+	facts := []iconFact{{Label: "Agent", Value: fmt.Sprintf("%s at %s.", agent.Kind, agent.Socket)}}
 	if !agent.Reachable {
 		reason := agent.Reason
 		if reason == "" {
 			reason = "the listing was refused without a message"
 		}
-		paragraphs = append(paragraphs, "The agent could not be asked for its identities: "+reason)
+		facts = append(facts, iconFact{Label: "Reachability",
+			Value: "The agent could not be asked for its identities: " + strings.TrimSuffix(reason, ".") + "."})
 	} else if len(agent.Identities) == 0 {
-		paragraphs = append(paragraphs, "The agent is running and holds no identities: nothing would authenticate through it until a key is added.")
+		facts = append(facts, iconFact{Label: "Identities",
+			Value: "The agent is running and holds no identities: nothing would authenticate through it until a key is added."})
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("It holds %d %s, listed below with their fingerprints.",
-			len(agent.Identities), sshPlural(len(agent.Identities), "identity", "identities")))
+		facts = append(facts, iconFact{Label: "Identities", Value: fmt.Sprintf("It holds %d %s, listed below with their fingerprints.",
+			len(agent.Identities), sshPlural(len(agent.Identities), "identity", "identities"))})
 	}
 	for _, note := range agent.Notes {
-		paragraphs = append(paragraphs, note)
+		facts = append(facts, iconFact{Label: "Note", Value: note})
 	}
 	if !agent.CanRemoveAll && agent.Reachable {
-		paragraphs = append(paragraphs, "Removing identities needs ssh-add, which was not found on PATH.")
+		facts = append(facts, iconFact{Label: "Removal",
+			Value: "Removing identities needs ssh-add, which was not found on PATH."})
 	}
-	return paragraphs
+	return facts
 }
 
-// sshDiagnosticDescription is the diagnosis screen: how many findings of each
-// severity, and the selected finding's own detail and fix.
+// sshDiagnosticDescription is the diagnosis screen's compact body, derived from the
+// facts the wide frame draws: how many findings of each severity, and the selected
+// finding's own detail and fix.
 func (m Model) sshDiagnosticDescription() []string {
+	return factProse(m.sshDiagnosticFacts())
+}
+
+// sshDiagnosticFacts is that answer as facts: the reading, then the count, then the
+// finding under the cursor as the four facts it is.
+func (m Model) sshDiagnosticFacts() []iconFact {
 	if !m.SSH.DiagnosticsLoaded {
-		return []string{"Reading the configuration files, the permissions on ~/.ssh and the client's own parse of its configuration."}
+		return []iconFact{{Label: "Diagnosis", Value: "Reading the configuration files, the permissions on ~/.ssh and the client's own parse of its configuration."}}
 	}
 	if m.SSH.DiagnosticsErr != "" {
-		return []string{"The diagnosis could not run: " + m.SSH.DiagnosticsErr}
+		return []iconFact{{Label: "Diagnosis",
+			Value: "The diagnosis could not run: " + strings.TrimSuffix(m.SSH.DiagnosticsErr, ".") + "."}}
 	}
 	problems, warnings, infos := sshFindingCounts(m.SSH.Findings)
-	var paragraphs []string
+	var facts []iconFact
 	if len(m.SSH.Findings) == 0 {
-		paragraphs = append(paragraphs, "Nothing to report: the permissions, the identity paths and the configuration's syntax all check out.")
+		facts = append(facts, iconFact{Label: "Findings",
+			Value: "Nothing to report: the permissions, the identity paths and the configuration's syntax all check out."})
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf("%d %s to look at: %d %s, %d %s and %d %s.",
+		facts = append(facts, iconFact{Label: "Findings", Value: fmt.Sprintf("%d %s to look at: %d %s, %d %s and %d %s.",
 			len(m.SSH.Findings), sshPlural(len(m.SSH.Findings), "finding", "findings"),
 			problems, sshPlural(problems, "problem", "problems"),
 			warnings, sshPlural(warnings, "warning", "warnings"),
-			infos, sshPlural(infos, "note", "notes")))
+			infos, sshPlural(infos, "note", "notes"))})
 	}
 	if f, ok := m.sshSelectedFinding(); ok {
-		paragraphs = append(paragraphs, f.Title+". "+f.Detail)
+		facts = append(facts, iconFact{Label: "Finding", Value: f.Title + ". " + f.Detail})
 		if f.Fix != "" {
-			paragraphs = append(paragraphs, "Fix: "+f.Fix)
+			facts = append(facts, iconFact{Label: "Fix", Value: factClause(f.Fix)})
 		} else {
-			paragraphs = append(paragraphs, "This one is a decision rather than a command: this tool reports it and changes nothing.")
+			facts = append(facts, iconFact{Label: "Decision",
+				Value: "This one is a decision rather than a command: this tool reports it and changes nothing."})
 		}
 		if f.File != "" {
 			location := f.File
 			if f.Line > 0 {
 				location = fmt.Sprintf("%s:%d", f.File, f.Line)
 			}
-			paragraphs = append(paragraphs, "Found at "+location+".")
+			facts = append(facts, iconFact{Label: "Found at", Value: location})
 		}
 	}
-	return paragraphs
+	return facts
 }
 
 // sshFindingCounts counts the report by severity, which is the first thing a
@@ -1022,57 +1097,65 @@ func sshFindingCounts(findings []sshcfg.Finding) (problems, warnings, infos int)
 	return problems, warnings, infos
 }
 
-// sshTestDescription is the test screen: the exact command that would run, the
-// bound it runs under, and then the result with its own explanation. A test is
-// offered only where the client exists, and the screen says so when it does not.
+// sshTestDescription is the test screen's compact body, derived from the facts the
+// wide frame draws: the exact command that would run, the bound it runs under, and
+// then the result with its own explanation. A test is offered only where the client
+// exists, and the screen says so when it does not.
 func (m Model) sshTestDescription() []string {
+	return factProse(m.sshTestFacts())
+}
+
+// sshTestFacts is that answer as facts: what the press would run, the two promises
+// that make it safe, and then the outcome, its explanation and the evidence the
+// client printed, bounded the way the screen always bounded it.
+func (m Model) sshTestFacts() []iconFact {
 	mgr := m.SSH.Manager
-	var paragraphs []string
+	var facts []iconFact
 
 	if mgr == nil || !mgr.Caps.HasSSH() {
-		return []string{"No connection can be tested here: the ssh client was not found on PATH, and this tool tests connections by asking the client to open one."}
+		return []iconFact{{Label: "Client",
+			Value: "No connection can be tested here: the ssh client was not found on PATH, and this tool tests connections by asking the client to open one."}}
 	}
 	alias := strings.TrimSpace(m.SSH.TestAlias)
 	if alias == "" {
-		paragraphs = append(paragraphs, "Type a host or an alias from the list, then press [r] on the run row to start the test.")
+		facts = append(facts, iconFact{Label: "Alias",
+			Value: "Type a host or an alias from the list, then press [r] on the run row to start the test."})
 	} else {
-		paragraphs = append(paragraphs, fmt.Sprintf(
+		facts = append(facts, iconFact{Label: "Test", Value: fmt.Sprintf(
 			"The test asks ssh to open a session to %s and run `true` there, under a %s bound, with the configuration exactly as the client would use it.",
-			alias, sshTestTimeout))
+			alias, sshTestTimeout)})
 	}
 	// The rule is stated before the press and in both states of the field: it is the
 	// promise that makes the row safe to press, and it would be wrong to state it
 	// only while the field happened to be empty.
-	paragraphs = append(paragraphs, "Nothing is sent anywhere until that press: no connection is opened while you read this.")
-	paragraphs = append(paragraphs, "Host keys are verified: an unknown or changed key fails the test, nothing is added to known_hosts, and no password is ever prompted for.")
+	facts = append(facts,
+		iconFact{Label: "Before the press",
+			Value: "Nothing is sent anywhere until that press: no connection is opened while you read this."},
+		iconFact{Label: "Host keys",
+			Value: "Host keys are verified: an unknown or changed key fails the test, nothing is added to known_hosts, and no password is ever prompted for."})
 
 	if m.SSH.Testing {
-		paragraphs = append(paragraphs, fmt.Sprintf("Running the test against %s…", m.SSH.Test.Alias))
-		return paragraphs
+		return append(facts, iconFact{Label: "Running", Value: fmt.Sprintf("Running the test against %s…", m.SSH.Test.Alias)})
 	}
 	if !m.SSH.Tested {
-		return paragraphs
+		return facts
 	}
 
 	result := m.SSH.Test
-	paragraphs = append(paragraphs, fmt.Sprintf("%s in %s.", sshTestOutcomeWord(result.Outcome), result.Duration.Round(time.Millisecond)))
-	paragraphs = append(paragraphs, result.Explanation)
+	facts = append(facts,
+		iconFact{Label: "Outcome", Value: fmt.Sprintf("%s in %s.",
+			sshTestOutcomeWord(result.Outcome), result.Duration.Round(time.Millisecond))},
+		iconFact{Label: "Why", Value: result.Explanation})
 	if len(result.Args) > 0 {
-		paragraphs = append(paragraphs, "Command: "+strings.Join(result.Args, " "))
+		facts = append(facts, iconFact{Label: "Command", Value: strings.Join(result.Args, " ")})
 	}
-	for i, line := range sshBoundedLines(result.Stderr, sshTestOutputRows) {
-		if i == 0 {
-			paragraphs = append(paragraphs, "The client said:")
-		}
-		paragraphs = append(paragraphs, line)
+	if lines := sshBoundedLines(result.Stderr, sshTestOutputRows); len(lines) > 0 {
+		facts = append(facts, iconFact{Label: "The client said", Value: strings.Join(lines, "\n")})
 	}
-	for i, line := range sshBoundedLines(result.Stdout, sshTestOutputRows) {
-		if i == 0 {
-			paragraphs = append(paragraphs, "The host answered:")
-		}
-		paragraphs = append(paragraphs, line)
+	if lines := sshBoundedLines(result.Stdout, sshTestOutputRows); len(lines) > 0 {
+		facts = append(facts, iconFact{Label: "The host answered", Value: strings.Join(lines, "\n")})
 	}
-	return paragraphs
+	return facts
 }
 
 // sshTestOutcomeWord is the plain word for an outcome, so the reader does not
