@@ -1221,6 +1221,30 @@ func TestShellAuditGolden(t *testing.T) {
 // came from, the two rows that are marked beside the ones that are not, and the
 // prose that says what would have to be downloaded or rebuilt again. No scan is
 // run and no machine is read, so the frame is the same on every runner.
+// TestShellAuditWideGolden pins the reference's two-column shell startup: the
+// clock art beside the numbered explanation, the filled measure press with the
+// four plan options, the results beside the recent runs, and the methodology.
+func TestShellAuditWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := shellAuditFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "The shell's startup"))
+}
+
+// TestUpdateCenterWideGolden pins the reference's updates screen: the stats strip,
+// the grouped table with its checkbox and scrollbar, the selected entry's card and
+// the actions card.
+func TestUpdateCenterWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := updateCenterFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Actions"))
+}
+
 func TestDiskCleanerGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := diskCleanerFrameCase(t)

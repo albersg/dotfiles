@@ -412,12 +412,16 @@ func TestEveryDetourRowReturnsToTheSetupScreen(t *testing.T) {
 }
 
 // TestEscapeFromTheSetupScreenLeavesForTheMainMenu pins the way out: Escape on
-// the setup screen is the old first question's Escape -- the main menu, with the
-// answers forgotten -- not a detour's way back.
+// the setup screen returns to the main menu and keeps the answers and the row the
+// cursor was on. Leaving the screen is not discarding the work: the old handler
+// zeroed both, so a reader who stepped out to check something came back to a
+// screen that had forgotten every choice and moved its cursor.
 func TestEscapeFromTheSetupScreenLeavesForTheMainMenu(t *testing.T) {
+	choices := UserChoices{OS: "linux", Shell: "fish", Terminal: "ghostty", InstallFont: true, InstallNvim: true}
 	m := Model{
-		Screen:  ScreenSetup,
-		Choices: UserChoices{OS: "linux", Shell: "fish", Terminal: "ghostty", InstallFont: true, InstallNvim: true},
+		Screen:      ScreenSetup,
+		Choices:     choices,
+		SetupCursor: 3,
 	}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
@@ -425,8 +429,11 @@ func TestEscapeFromTheSetupScreenLeavesForTheMainMenu(t *testing.T) {
 	if got.Screen != ScreenMainMenu {
 		t.Errorf("Escape on the setup screen landed on %v, want the main menu", got.Screen)
 	}
-	if !reflect.DeepEqual(got.Choices, UserChoices{}) {
-		t.Errorf("Escape on the setup screen left the choices %+v, want them forgotten", got.Choices)
+	if !reflect.DeepEqual(got.Choices, choices) {
+		t.Errorf("Escape on the setup screen changed the choices to %+v, want them kept", got.Choices)
+	}
+	if got.SetupCursor != 3 {
+		t.Errorf("Escape on the setup screen moved its cursor to %d, want it kept on 3", got.SetupCursor)
 	}
 }
 

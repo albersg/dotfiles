@@ -1,0 +1,50 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+            ▄▄▄▄▄▄▄       ╭─ The shell's startup ────────────────────────────────────────────────────────────────────── Measure how long zsh takes to start. ╮  
+         ▄█▀▀▀▀▀▀▀█▄      │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
+       ██   ▐     ██      │  1  What is measured?                                                                                                            │  
+       ██   ▐     ██      │    The time it takes for zsh to start, including your configuration: `zsh -i -c exit`.                                           │  
+       ██   ▀▀    ██      │  2  How many runs?                                                                                                               │  
+         ▀█▄▄▄▄▄▄▄█▀      │    5 starts are performed (each bounded by 10 s). The median is used as the result.                                              │  
+            ▀▀▀▀▀▀▀       │  3  Controls?                                                                                                                    │  
+                          │    Press [s] to start, or adjust the options below. Use [h] to keep the run history.                                             │  
+           zsh            ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                                                                
+   ▶ [s] Measure the shell's startup     ╭─────────────────────╮  ╭────────────────────────────╮  ╭──────────────────────────╮  ╭──────────────────────────╮    
+                                         │  [m] Interactive   │  │ # [n] Runs: 5              │  │  [w] Warm-up: Off       │  │  [b] Clean comparison   │    
+                                         │ interactive         │  │ Number of measurements     │  │ Discard initial runs     │  │ Off                      │    
+                                         ╰─────────────────────╯  ╰────────────────────────────╯  ╰──────────────────────────╯  ╰──────────────────────────╯    
+                                                                                                                                                                
+  ← Back  [Esc] returns to Utilities                                                                                                                            
+  ╭─ Results ──────────────────────────────────────────────────── startup performance ╮  ╭─ Recent runs ─────────────────────────── Most recent measurements ╮  
+  │───────────────────────────────────────────────────────────────────────────────────│  │───────────────────────────────────────────────────────────────────│  
+  │ ╭─────────────────────────╮ ╭────────────────────────╮ ╭────────────────────────╮ │  │ #   Duration Status      Notes                                    │  
+  │ │ Current median          │ │ Best (session)         │ │ Last run               │ │  │ 4   932 ms   ✓ completed start 4 of 5                             │  
+  │ │ 924 ms                  │ │ 872 ms                 │ │ ✓ 932 ms               │ │  │ 3   872 ms   ✓ completed start 3 of 5                             │  
+  │ ╰─────────────────────────╯ ╰────────────────────────╯ ╰────────────────────────╯ │  │ 2   915 ms   ✓ completed start 2 of 5                             │  
+  │                                                                                   │  │ 1   977 ms   ✓ completed start 1 of 5                             │  
+  │ Median of 4 of 5 runs: 924 ms (mean 924 ms)                                       │  │ -   —        timed out   bounded by 10 s                          │  
+  │ Range: 872 ms to 977 ms                                                           │  ╰───────────────────────────────────────────────────────────────────╯  
+  │ 1 of 5 runs did not finish: 1 timed out at 10 s                                   │                                                                         
+  │ Heaviest entry: compdump (725 ms self, 1 call(s))                                 │                                                                         
+  │                                                                                   │                                                                         
+  │ Run durations (ms)                                                                │                                                                         
+  │  1  977 ms  ██████████████████   Min     872 ms                                   │                                                                         
+  │  2  915 ms  █████████████████░   Max     977 ms                                   │                                                                         
+  │  3  872 ms  ████████████████░░   Average 924 ms                                   │                                                                         
+  │  4  932 ms  █████████████████░   Median  924 ms                                   │                                                                         
+  │ Min 872 ms · Max 977 ms · Average 924 ms · Median 924 ms                          │                                                                         
+  ╰───────────────────────────────────────────────────────────────────────────────────╯                                                                         
+                                                                                                                                                                
+  ╭─ Methodology ───────────────────────────────────────────────────────────────────────────────────────────────────────────────── How the measurement works ╮  
+  │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
+  │ • Runs `zsh -i -c exit` multiple times, each bounded by 10 s.                                                                                            │  
+  │ • The median is used as the result (more stable than a single run).                                                                                      │  
+  │ • Use [m] for the start, [w] to set warm-up runs, or [b] for a clean comparison (minimal config).                                                        │  
+  │ • Nothing here is changed: no startup file is written and no plugin is disabled.                                                                         │  
+  │ • ← Back returns to Utilities; the footer spells the key.                                                                                                │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
+                                                                                                                                                                
+  ● Ready ───────────────────────────────────────────────── Median 924 ms over 4 of 5 runs · fastest 872 ms ──────────────────────────────────────────────────  
+                                                    ↑/k up • ↓/j down • [s] measure • [m/n/w/b] what to measure • [h/r] history / recommendations • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

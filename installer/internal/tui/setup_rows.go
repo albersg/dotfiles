@@ -469,7 +469,9 @@ func (m *Model) detectExistingConfigsForSetup() {
 // that question now lives on.
 func (m *Model) enterSetup() {
 	m.Screen = ScreenSetup
-	m.SetupCursor = 0
+	// The cursor is kept: Escape leaves the screen without discarding the row the
+	// reader was on, and entering it again resumes there rather than jumping to the
+	// first row. A brand-new model starts at zero anyway.
 	m.SetupDetour = false
 	m.detectExistingConfigsForSetup()
 	if m.SystemInfo != nil {
@@ -512,14 +514,14 @@ func (m *Model) returnToSetup() {
 	m.Cursor = 0
 }
 
-// leaveSetup is the setup screen's Escape: it leaves for the main menu and
-// forgets the answers, the way the old first question's Escape did.
+// leaveSetup is the setup screen's Escape: it leaves for the main menu and keeps
+// the answers and the row the cursor was on. The setup screen is where the reader
+// was working, and a key that throws that work away is a trap; entering the screen
+// again resumes at the same row.
 func (m *Model) leaveSetup() {
 	m.Screen = ScreenMainMenu
 	m.Cursor = 0
-	m.SetupCursor = 0
 	m.SetupDetour = false
-	m.Choices = UserChoices{}
 }
 
 // handleSetupKeys drives the setup screen: the arrows move and cycle, Space

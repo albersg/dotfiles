@@ -190,6 +190,16 @@ var (
 	RowBarMarkerStyle      lipgloss.Style
 	ButtonStyle            lipgloss.Style
 
+	// The reference screens' shared grammar: a filled chip on a card's border,
+	// the filled circle in front of a numbered step, the bordered warning badge,
+	// the ink a subtitle uses on a filled selection bar, and the muted table
+	// header. Every one is painted from a role the palette already carries.
+	CardChipStyle    lipgloss.Style
+	StepNumberStyle  lipgloss.Style
+	BadgeStyle       lipgloss.Style
+	OnFillMutedStyle lipgloss.Style
+	TableHeaderStyle lipgloss.Style
+
 	// EmblemRampStyles is the vertical ramp the splash emblem is drawn in: brand
 	// blue at the top, the softer secondary through the middle and the accent gold
 	// at the tip. Every stop is an existing palette entry, so the ramp is a use of
@@ -394,6 +404,36 @@ func applyUIColors(c uiColors) {
 	RowBarMarkerStyle = lipgloss.NewStyle().
 		Foreground(Accent).
 		Background(BrandSoft).
+		Bold(true)
+
+	// The reference grammar's parts. The card chip is the header tab's shape
+	// reused on a border, the step number a filled block of the brand role, the
+	// badge a bordered box in the warning role, and the on-fill subtitle the bar
+	// ink without the weight so a description reads under its title.
+	CardChipStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(Brand).
+		Bold(true).
+		Padding(0, 1)
+
+	StepNumberStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(Brand).
+		Bold(true).
+		Padding(0, 1)
+
+	BadgeStyle = lipgloss.NewStyle().
+		Foreground(Warning).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(Warning).
+		Padding(0, 1)
+
+	OnFillMutedStyle = lipgloss.NewStyle().
+		Foreground(Paper).
+		Background(BrandSoft)
+
+	TableHeaderStyle = lipgloss.NewStyle().
+		Foreground(InkDim).
 		Bold(true)
 
 	// The splash emblem's ramp, rebuilt here with everything else. It is a slice of

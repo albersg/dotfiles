@@ -1882,7 +1882,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.Screen {
 	case ScreenWelcome:
 		switch key {
-		case "s":
+		case "s", "tab":
+			// The start key opens the menu where the run begins, and Tab does the
+			// same: the reference's own footer offers "[Tab] menu", and a key the
+			// screen advertises has to do what it says.
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 		case "q":
@@ -2398,6 +2401,12 @@ func (m Model) handleEscape() (tea.Model, tea.Cmd) {
 		m.Screen = ScreenTrainerMenu
 		m.TrainerMessage = ""
 		saveTrainerStats(&m)
+	case ScreenComplete, ScreenError:
+		// The two ends of the run accept Escape as their quit key: the footer has
+		// always offered [q], and a reader who reaches for the key every other
+		// screen treats as "back" should not have to learn a different one here.
+		m.Quitting = true
+		return m, tea.Quit
 	// The main menu is the root of the flow, so Esc has nowhere back to go. It
 	// used to quit the whole application, which made this one unannounced global
 	// key the most destructive key in the interface, while the footer announced

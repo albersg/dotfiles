@@ -829,3 +829,77 @@ with a scrollbar, resource bars, the warning badge, and a footer that keeps Read
 plus a centre status plus the key hints. The audit's P1 functional fixes remain
 valid and are folded into this pass; the audit's P2 cosmetics are superseded.
 
+
+L19. The four reference screens are reproduced on the current branch, and the
+audit's P1 functional fixes are folded in.
+
+**The shared grammar is code now** (`components.go`): `card` (a filled chip on the
+top border, a right-aligned muted caption, a rule under them, then the body),
+`cardRowLines` (icon, title, subtitle, right chevron; the selected row is one
+filled bar with the marker and on-fill subtitle), `numberedStepLines`, `statBoxLines`,
+`actionButtonRow`/`actionButtonRowAll` (each press carries its key; the primary is
+filled), `iconFactLines` (a glyph, a label at a shared column, a wrapped value),
+`resourceBarRow` (filled bar, hatched empty part, the value and percent),
+`warningBadge` (a bordered amber box) and `groupedTableHeader`. They are built
+only from the palette's roles (`CardChipStyle`, `StepNumberStyle`, `BadgeStyle`,
+`OnFillMutedStyle`, `TableHeaderStyle`, all rebuilt by `applyUIColors`). The
+footer's status row now carries an optional centred line (`footerCenterStatus`).
+
+**Home** (`home_view.go`): the reference's two columns, the lockup and wordmark,
+`Your personal development environment.` / `Fast. Consistent. Yours.`, the four
+machine cards, the greeting, the environment sentence, the filled
+`▶ Press [s] to start installation` and `or explore the menu with [Tab]`, and at
+the right `Your machine`, `Next steps` (the real plan grouped by `InstallStep.Area`)
+and `Recent backup` (the newest backup, or nothing). The 80x24 floor keeps the
+compact dashboard. Tab now opens the menu, as the reference's footer says.
+
+**Utilities** (`utilities_cards.go`): the card of two-line rows with its own
+subtitle and chevrons, windowed with `↑ N more above` / `↓ N more below`, beside
+`Theme and System Styling` (the real switch availability and the amber badge with
+the section's own reason), `System Overview` (the real facts and the selected row),
+`Resources` (the sampler's own CPU/memory/disk) and `Recommended next actions`
+(only jobs the handler really offers). The compact card stays at the floor.
+
+**Updates** (`update_center_view.go`): the stats strip, the filter pills, the
+grouped table with a checkbox column, the `Package / Current → New version /
+Manager / Scope` header, a scrollbar, the selected row filled, the focused entry's
+card (`Installed`, `Candidate`, `Held`, `Note`, `Read with` — facts the table row
+does not carry, so the detail no longer repeats the row) and the real keys. The
+floor keeps the section renderer.
+
+**Shell Startup** (`shell_audit_view.go`): the clock art, `The shell's startup`
+with the numbered what/how many/controls rows, the filled `[s] Measure the shell's
+startup` beside the real `[m]`/`[n]`/`[w]`/`[b]` options, `Results` with stat boxes
+and the per-run bars and min/max/average/median, `Recent runs`, `Methodology` and
+the footer's own `Median … over N of M runs` status.
+
+**Functional fixes.** Escape on Setup keeps `Choices` and `SetupCursor`; the
+utilities overview names the selected row; the section header's `Showing X-Y of Z`
+is recomputed after the list band is trimmed, so it cannot advertise a row the
+frame dropped; the update detail states only facts the row lacks; the theme
+palette says `Showing: the applied theme` or `the previewed theme (press Enter to
+apply)`; the installing floor names the checklist rows it hides and the step
+counter is derived from the same progress as the bar; Escape quits the Complete
+and Error screens; the doctor/update-center rows wrap onto a second line where the
+list band has room and keep the one-line rows where it does not.
+
+**Deviations kept deliberately.** The machine/plan/backup cards use the model's
+real names (`Preparation`, `The extras`, …) rather than the reference's invented
+copy; the update detail has no invented package description or install date; the
+shell results show the model's samples (no per-run timestamps), and `Previous
+median` appears only when the stored history has one; the wide layouts are gated
+by row budgets, so a short frame falls back to the existing compact renderer; the
+creature is still placed by the frame, not by the home body.
+
+**Goldens.** `TestDashboardWideGolden`, `TestUtilitiesWideGolden`,
+`TestShellAuditGolden`, `TestInstallingScreenGolden`, `TestInstallingLiveGolden`,
+`TestInstallingTruecolorGolden`, `TestThemePickerWideGolden` and
+`TestWelcomeLivePanelGolden` were regenerated; `TestShellAuditWideGolden` and
+`TestUpdateCenterWideGolden` are new.
+
+**Still to extend.** The reference grammar has not yet replaced the section
+renderer used by the doctor, the other utility reports (WSL resources, terminal
+capabilities, network, ports, SSH, disk cleaner, install verify), the wizard's
+pickers, the Learn/keymap tables, the trainer and the backup/restore screens:
+they keep the existing card/list grammar. Their rows and keys are unchanged; they
+are the next slices, not regressions of this one.

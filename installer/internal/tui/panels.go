@@ -316,6 +316,14 @@ func (m Model) themePaletteFacts(l layout) []string {
 		return []string{InkStyle.Render("Move the cursor onto a theme to see the palette it would paint.")}
 	}
 	rows := panelFact("Theme", def.Name, l.Right)
+	// The board is a picture of one theme, and it says which one: the theme under
+	// the cursor is a preview nothing has been written for, while the applied theme
+	// is the one the interface is actually wearing.
+	shown := "the applied theme"
+	if preview, ok := m.previewThemeDef(); ok && preview.ID == def.ID {
+		shown = "the previewed theme (press Enter to apply)"
+	}
+	rows = append(rows, panelFact("Showing", shown, l.Right)...)
 	rows = append(rows, panelFact("Applied", m.appliedThemeName(), l.Right)...)
 	for _, role := range themeBoardRoles {
 		hex := def.Palette[role]

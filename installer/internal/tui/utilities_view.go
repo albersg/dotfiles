@@ -524,6 +524,18 @@ func (m Model) utilitiesOverviewCardTitle() string {
 	return utilitiesOverviewPanelLabel + " " + panelTabSeparator + headline
 }
 
+// utilitiesSelectedRow is the row the cursor is on, so a panel that answers
+// about the section can name the job the keys would run rather than describing
+// the same machine whatever the cursor is on. A cursor on a separator has no job
+// under it and reports false.
+func (m Model) utilitiesSelectedRow() (utilitiesRow, bool) {
+	rows := m.utilitiesRows()
+	if m.Cursor < 0 || m.Cursor >= len(rows) || rows[m.Cursor].Divider {
+		return utilitiesRow{}, false
+	}
+	return rows[m.Cursor], true
+}
+
 // utilitiesOverviewFacts is the panel's body: the machine's own facts, then the
 // resources block, then the diagnosis' verdict.
 //
@@ -541,6 +553,13 @@ func (m Model) utilitiesOverviewFacts(l layout) []string {
 
 	var rows []string
 	if info := m.SystemInfo; info != nil {
+		if selected, ok := m.utilitiesSelectedRow(); ok {
+			value := selected.Title
+			if selected.Subtitle != "" {
+				value += " — " + selected.Subtitle
+			}
+			rows = append(rows, panelFact("Selected", value, width)...)
+		}
 		rows = append(rows, panelFact("OS", info.OSName, width)...)
 		rows = append(rows, panelFact("Host", m.platformHost(), width)...)
 		rows = append(rows, panelFact("Arch", archName(info), width)...)
