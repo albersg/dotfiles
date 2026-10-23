@@ -190,9 +190,18 @@ func (m Model) wslBenchmarkDescription() []string {
 	return factProse(m.wslBenchmarkFacts())
 }
 
-// wslBenchmarkFacts is that answer as facts: the run's own bounds, the targets in the order they are
-// measured, what the numbers are not, and then the report the run wrote.
+// wslBenchmarkFacts is that answer as one list of facts, which is what the compact body's prose is
+// derived from: a flatten of wslBenchmarkAreas, so the floor and the card read one list.
 func (m Model) wslBenchmarkFacts() []iconFact {
+	return factAreaFacts(m.wslBenchmarkAreas())
+}
+
+// wslBenchmarkAreas is the measurement screen's detail as areas: what a run writes and removes, the
+// targets in the order they are measured, the run's own state, and then one area per measured target
+// with one row per operation. The operations used to be five clauses of a single sentence per target
+// ("write in 420 ms, 150 files/s, 152.4 KiB/s; read back in 96 ms, ..."), which is the shape a reader
+// cannot scan down a column; each is a row now, so the two targets' stat rows sit beside each other.
+func (m Model) wslBenchmarkAreas() []factArea {
 	state := m.WSLAdvisor.Benchmark
 	limits := system.DefaultBenchLimits()
 	targets := m.wslBenchmarkTargets()
@@ -202,39 +211,44 @@ func (m Model) wslBenchmarkFacts() []iconFact {
 		// The row that opened this screen only exists when the run can finish, so this fact is
 		// the one case where the answer changed between drawing the report and pressing it: a
 		// directory that was there when the report was taken and is gone now.
-		return []iconFact{{Label: "Measurement", Value: offer.Reason}}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "Measurement", Value: offer.Reason}}}}
 	}
 
-	facts := []iconFact{{Label: "What it writes", Value: fmt.Sprintf(
-		"The measurement writes its own scratch directory inside each target, reads it back, states "+
-			"it, creates many small files and removes them again. One run writes %d files of %s into "+
-			"each target's scratch directory, inside a whole-run bound of %s and a ceiling of %s in one "+
-			"target, and it removes everything it made -- including after a failure or the bound being "+
-			"reached, which its own report states.",
-		limits.Files, humanBytes(uint64(limits.FileSize)), wslDurationLabel(limits.Timeout),
-		humanBytes(uint64(limits.MaxBytes)))}}
+	written := []iconFact{
+		{Icon: wslFactIconDisk, Label: "Writes", Value: fmt.Sprintf("%d files of %s into each target's own scratch directory",
+			limits.Files, humanBytes(uint64(limits.FileSize)))},
+		{Icon: wslFactIconDisk, Label: "Removes", Value: "everything it wrote, including after a failure"},
+		{Icon: wslFactIconLimit, Label: "Bound", Value: fmt.Sprintf("%s for the run, %s in one target",
+			wslDurationLabel(limits.Timeout), humanBytes(uint64(limits.MaxBytes)))},
+	}
 
-	var names []string
+	targetRows := []iconFact{{Icon: wslFactIconFolder, Label: "Order", Value: "measured from top to bottom"}}
 	for _, target := range targets {
-		names = append(names, target.Name+" ("+target.Path+")")
+		targetRows = append(targetRows, iconFact{Icon: wslFactIconFolder, Label: target.Name, Value: target.Path})
 	}
-	facts = append(facts,
-		iconFact{Label: "Measured", Value: "Targets, measured in this order: " + strings.Join(names, "; ") + "."},
-		iconFact{Label: "Not a promise", Value: "The numbers compare these paths on this machine at this moment. " +
-			"They are not a promise about a build, a test suite or a Git operation, and the report claims no " +
-			"improvement it did not measure: a faster copy here does not prove that anything the project " +
-			"does will be faster."})
+
+	areas := []factArea{
+		{Name: "The measurement", Facts: written},
+		{Name: "Targets", Facts: targetRows},
+		// The numbers are not a promise, and the row says so in one clause instead of a
+		// paragraph: a faster copy here is not a faster build.
+		{Name: "Read the numbers as", Facts: []iconFact{
+			{Icon: wslFactIconWhy, Label: "Scope", Value: "this machine, these paths, this moment"},
+			{Icon: wslFactIconLimit, Label: "Not a promise", Value: "no build, test suite or Git operation was measured"},
+		}},
+	}
 
 	if !state.Ran {
+		run := "nothing measured yet; the row above starts the run"
 		if state.Running {
-			return append(facts, iconFact{Label: "Run", Value: "The run is in flight. Everything it wrote is removed " +
-				"before it reports, so the answer is the last thing to arrive."})
+			run = "in flight; everything it wrote is removed before it reports"
 		}
-		return append(facts, iconFact{Label: "Run", Value: "Nothing has been measured yet. The row above starts the " +
-			"run; nothing is written until it is pressed."})
+		return append(areas, factArea{Name: "Run", Facts: []iconFact{
+			{Icon: wslFactIconBenefit, Label: "Run", Value: run},
+		}})
 	}
 
-	return append(facts, wslBenchmarkResultsFacts(state.Report)...)
+	return append(areas, wslBenchmarkResultsAreas(state.Report)...)
 }
 
 // wslBenchmarkResultsParagraphs renders the report as the compact body's paragraphs. It is the prose
@@ -243,55 +257,67 @@ func wslBenchmarkResultsParagraphs(report system.BenchReport) []string {
 	return factProse(wslBenchmarkResultsFacts(report))
 }
 
-// wslBenchmarkResultsFacts renders the report as facts: one fact per target with its operations, then
-// what it could not measure, then what the run admits about itself.
+// wslBenchmarkResultsFacts is the report as one list of facts, for its own prose.
 func wslBenchmarkResultsFacts(report system.BenchReport) []iconFact {
-	var facts []iconFact
+	return factAreaFacts(wslBenchmarkResultsAreas(report))
+}
+
+// wslBenchmarkResultsAreas renders the report as areas: one per target -- its name on the divider,
+// one row per operation, the notes the run took under it -- and then what the run admits about
+// itself.
+func wslBenchmarkResultsAreas(report system.BenchReport) []factArea {
+	areas := make([]factArea, 0, len(report.Results)+2)
 	for _, result := range report.Results {
-		header := result.Target.Name + " (" + result.Target.Path + ")"
+		header := result.Target.Name
 		if result.Err != "" {
-			facts = append(facts, iconFact{Label: result.Target.Name, Value: header + " could not be measured: " + result.Err + "."})
+			areas = append(areas, factArea{Name: header, Facts: []iconFact{
+				{Icon: wslFactIconLimit, Label: "Failed", Value: factClause(result.Err)},
+			}})
 			continue
 		}
-		var lines []string
+		rows := make([]iconFact, 0, len(result.Measurements)+len(result.Notes))
 		for _, measurement := range result.Measurements {
-			lines = append(lines, fmt.Sprintf("%s in %s", wslOperationLabel(measurement.Operation),
-				wslBenchRateLabel(measurement)))
+			rows = append(rows, iconFact{Icon: wslFactIconMemory,
+				Label: wslFactLabel(wslOperationLabel(measurement.Operation)),
+				Value: wslBenchRateLabel(measurement)})
 		}
-		if len(lines) == 0 {
-			facts = append(facts, iconFact{Label: result.Target.Name, Value: header + " produced no measurement."})
-		} else {
-			facts = append(facts, iconFact{Label: result.Target.Name, Value: header + ": " + strings.Join(lines, "; ") + "."})
+		if len(rows) == 0 {
+			rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Measured", Value: "no measurement"})
 		}
-		if len(result.Notes) > 0 {
-			facts = append(facts, iconFact{Label: "Not measured",
-				Value: "What " + result.Target.Name + " did not measure: " +
-					strings.TrimSuffix(strings.Join(result.Notes, " "), ".") + "."})
+		for _, note := range result.Notes {
+			rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Not measured", Value: factClause(note)})
 		}
+		rows = append(rows, iconFact{Icon: wslFactIconFolder, Label: "Path", Value: result.Target.Path})
+		areas = append(areas, factArea{Name: header, Facts: rows})
 	}
 
+	var run []iconFact
 	if len(report.Results) == 1 {
-		facts = append(facts, iconFact{Label: "Comparison", Value: "Only one target could be measured, so there is nothing to " +
-			"compare it with: a number on its own says how fast this path is, not whether another would " +
-			"be faster."})
+		run = append(run, iconFact{Icon: wslFactIconLimit, Label: "Comparison",
+			Value: "one target, so there is nothing to compare it with"})
 	}
-
-	cleaned := "Every scratch directory this run created was removed."
+	cleaned := "every scratch directory this run created was removed"
 	if !report.Cleaned {
-		cleaned = "A scratch directory this run created is still on disk: the run says so rather than " +
-			"reporting a clean disk it cannot prove, and its own report names the directory it could not " +
-			"remove."
+		cleaned = "a scratch directory is still on disk; the report names it"
 	}
-	facts = append(facts, iconFact{Label: "Disk",
-		Value: cleaned + " The whole run took " + wslDurationLabel(report.Duration) + "."})
+	run = append(run, iconFact{Icon: wslFactIconDisk, Label: "Disk", Value: cleaned})
+	run = append(run, iconFact{Icon: wslFactIconShell, Label: "Took", Value: wslDurationLabel(report.Duration)})
+	for _, contamination := range report.Contamination {
+		run = append(run, iconFact{Icon: wslFactIconLimit, Label: "Contamination", Value: factClause(contamination)})
+	}
+	for _, note := range report.Notes {
+		run = append(run, iconFact{Icon: wslFactIconLimit, Label: "Note", Value: factClause(note)})
+	}
+	return append(areas, factArea{Name: "The run", Facts: run})
+}
 
-	if len(report.Contamination) > 0 {
-		facts = append(facts, iconFact{Label: "Contamination", Value: "What muddies these numbers: " + strings.Join(report.Contamination, " ")})
+// wslFactLabel capitalises the first letter of a name the engine spells for a sentence, so a row's
+// label reads like the label column above and below it.
+func wslFactLabel(name string) string {
+	if name == "" {
+		return name
 	}
-	if len(report.Notes) > 0 {
-		facts = append(facts, iconFact{Label: "Note", Value: strings.Join(report.Notes, " ")})
-	}
-	return facts
+	return strings.ToUpper(name[:1]) + name[1:]
 }
 
 // handleWSLBenchmarkKeys drives the measurement screen. The measurement runs on its own letter and
@@ -451,28 +477,42 @@ func (m Model) wslMigrationDescription() []string {
 	return factProse(m.wslMigrationFacts())
 }
 
-// wslMigrationFacts is what the current phase says, as facts.
+// wslMigrationFacts is what the current phase says, as one list of facts, which is what the compact
+// body's prose is derived from: a flatten of wslMigrationAreas.
 func (m Model) wslMigrationFacts() []iconFact {
+	return factAreaFacts(m.wslMigrationAreas())
+}
+
+// wslMigrationAreas is the assisted copy's detail as the areas its phase divides into. Every row is one
+// short fact about the copy: what it writes, where it lands, what it leaves behind, and -- on the
+// screens that ask a question -- nothing yet. The body used to state these as paragraphs ("Nothing has
+// been written or read beyond the report's own listing. This choice does not copy anything: the next
+// screen chooses where the copy would land, and the screen after that is a preview that has to be
+// confirmed."), and a reader deciding whether to press a key had to read the whole paragraph to learn
+// the one thing that mattered: that the press writes nothing.
+func (m Model) wslMigrationAreas() []factArea {
 	state := m.WSLAdvisor.Migration
 	switch state.Phase {
 	case wslMigratePickSource:
-		return wslMigrationSourceFacts(state)
+		return wslMigrationSourceAreas(state)
 	case wslMigratePickDestination:
-		return wslMigrationDestinationFacts(state)
+		return wslMigrationDestinationAreas(state)
 	case wslMigrateReadingSource:
 		source, ok := m.wslMigrationChosenSource()
 		if !ok {
-			return []iconFact{{Label: "Reading", Value: "Reading the source. Nothing is written."}}
+			return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "Reading", Value: "nothing is written"}}}}
 		}
-		return []iconFact{{Label: "Reading", Value: fmt.Sprintf("Reading %s to count what a copy would take. This reads every entry "+
-			"and writes nothing: the preview that follows is a description, and the engine refuses to "+
-			"run one that is not runnable.", source.Path)}}
+		return []factArea{{Name: "Reading", Facts: []iconFact{
+			{Icon: wslFactIconFolder, Label: "Source", Value: source.Path},
+			{Icon: wslFactIconReadOnly, Label: "Writes", Value: "nothing: this counts what a copy would take"},
+			{Icon: wslFactIconAction, Label: "Next", Value: "a preview that has to be confirmed"},
+		}}}
 	case wslMigratePreview:
-		return wslMigrationPreviewFacts(state)
+		return wslMigrationPreviewAreas(state)
 	case wslMigrateCopying:
-		return wslMigrationCopyingFacts(state)
+		return wslMigrationCopyingAreas(state)
 	case wslMigrateDone:
-		return wslMigrationOutcomeFacts(state)
+		return wslMigrationOutcomeAreas(state)
 	}
 	return nil
 }
@@ -485,18 +525,22 @@ func wslMigrationSourceParagraphs(state wslMigrationState) []string {
 
 // wslMigrationSourceFacts introduces the first question.
 func wslMigrationSourceFacts(state wslMigrationState) []iconFact {
+	return factAreaFacts(wslMigrationSourceAreas(state))
+}
+
+// wslMigrationSourceAreas introduces the first question: what the list leads with, how the storage was
+// judged, and that nothing has been written yet.
+func wslMigrationSourceAreas(state wslMigrationState) []factArea {
 	if len(state.Sources) == 0 {
-		return []iconFact{{Label: "Sources", Value: "No readable project directory was found to copy."}}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "Sources",
+			Value: "no readable project directory to copy"}}}}
 	}
-	return []iconFact{
-		{Label: "Choosing", Value: "The assisted copy starts by choosing a directory. The list leads with the projects that live " +
-			"on the Windows host, because every metadata operation there crosses the boundary; the " +
-			"storage each one is on is named on its own row, from the filesystem its mount exposes and " +
-			"never from its path."},
-		{Label: "Nothing written", Value: "Nothing has been written or read beyond the report's own listing. This choice does not copy " +
-			"anything: the next screen chooses where the copy would land, and the screen after that is a " +
-			"preview that has to be confirmed."},
-	}
+	return []factArea{{Name: "Choosing", Facts: []iconFact{
+		{Icon: wslFactIconFolder, Label: "Order", Value: "projects on the Windows host first"},
+		{Icon: wslFactIconDisk, Label: "Storage", Value: "named from the mount's filesystem, never from its path"},
+		{Icon: wslFactIconReadOnly, Label: "Writes", Value: "nothing: this choice copies nothing"},
+		{Icon: wslFactIconAction, Label: "Next", Value: "where the copy would land"},
+	}}}
 }
 
 // wslMigrationDestinationParagraphs introduces the second question as the compact body's paragraphs.
@@ -507,23 +551,33 @@ func wslMigrationDestinationParagraphs(state wslMigrationState) []string {
 
 // wslMigrationDestinationFacts introduces the second question.
 func wslMigrationDestinationFacts(state wslMigrationState) []iconFact {
-	facts := []iconFact{
-		{Label: "Destinations", Value: "Every destination here is on the distribution's own filesystem, judged by the filesystem each " +
-			"mount exposes. A destination on the Windows side is not offered: a copy that landed there " +
-			"would recreate the cost this utility exists to remove."},
-	}
+	return factAreaFacts(wslMigrationDestinationAreas(state))
+}
+
+// wslMigrationDestinationAreas introduces the second question: where a copy may land, what the press
+// does, and what is left behind by default.
+func wslMigrationDestinationAreas(state wslMigrationState) []factArea {
+	areas := []factArea{{Name: "Destinations", Facts: []iconFact{
+		{Icon: wslFactIconDisk, Label: "Allowed", Value: "the distribution's own filesystem only"},
+		{Icon: wslFactIconWhy, Label: "Judged by", Value: "the filesystem each mount exposes"},
+		{Icon: wslFactIconLimit, Label: "Not offered", Value: "a destination on the Windows side"},
+		{Icon: wslFactIconFolder, Label: "Copy", Value: "into a directory of its own; nothing overwritten, nothing deleted"},
+	}}}
 	if len(state.Destinations) == 0 {
-		return append(facts, iconFact{Label: "Nowhere to copy", Value: "No destination on the distribution's own storage was found for this " +
-			"project, so there is nowhere to copy it to. Nothing has been changed."})
+		return append(areas, factArea{Name: "Nowhere to copy", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Nothing found",
+				Value: "no destination on the distribution's own storage; nothing has been changed"},
+		}})
 	}
-	return append(facts,
-		iconFact{Label: "Copy", Value: "A copy goes into a directory of its own inside the destination: nothing on either side is " +
-			"overwritten, and nothing in the source is deleted, moved or renamed. Choosing a row here " +
-			"reads the source and shows the preview; it still copies nothing."},
-		iconFact{Label: "Default exclusions", Value: "Left behind by default, and counted in the preview: " +
-			strings.Join(wslMigrationDefaultExclusions, ", ") + ". Every one of them is regenerable from the " +
-			"source's own manifest, and the preview names the entries the pattern matched rather than the " +
-			"intention behind it."})
+	return append(areas,
+		factArea{Name: "Choosing", Facts: []iconFact{
+			{Icon: wslFactIconReadOnly, Label: "Writes", Value: "nothing: a choice reads the source and shows the preview"},
+		}},
+		factArea{Name: "Left behind by default", Facts: []iconFact{
+			{Icon: wslFactIconFolder, Label: "Exclusions", Value: strings.Join(wslMigrationDefaultExclusions, ", ")},
+			{Icon: wslFactIconWhy, Label: "Why", Value: "each one is regenerable from the source's own manifest"},
+		}},
+	)
 }
 
 // wslMigrationPreviewParagraphs is the confirmation's own account of what it would do, as the compact
@@ -534,50 +588,81 @@ func wslMigrationPreviewParagraphs(state wslMigrationState) []string {
 
 // wslMigrationPreviewFacts is the confirmation's own account of what it would do.
 func wslMigrationPreviewFacts(state wslMigrationState) []iconFact {
+	return factAreaFacts(wslMigrationPreviewAreas(state))
+}
+
+// wslMigrationPreviewAreas is the confirmation's own account of what it would do: the question, what
+// it would copy, whether it fits, what is left behind, what to know before pressing, the same work by
+// hand, and the promise about the source. Each warning and each by-hand command is its own row, so a
+// reader checks the one that applies instead of reading a paragraph of them.
+func wslMigrationPreviewAreas(state wslMigrationState) []factArea {
 	if state.PlanErr != "" {
-		return []iconFact{{Label: "Preview", Value: "The preview could not be read: " + state.PlanErr + ". Nothing has been written."}}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "Preview",
+			Value: "could not be read: " + state.PlanErr + "; nothing has been written"}}}}
 	}
 	plan := state.Plan
 	source, destination := plan.Source, plan.Destination
 
-	facts := []iconFact{{Label: "Confirm", Value: fmt.Sprintf("Copy %s to %s?", source, destination)}}
+	areas := []factArea{{Name: "The question", Facts: []iconFact{
+		{Icon: wslFactIconAction, Label: "Confirm", Value: fmt.Sprintf("copy %s to %s", source, destination)},
+	}}}
+
 	if len(plan.Blockers) > 0 {
-		facts = append(facts, iconFact{Label: "Blocked", Value: "This copy cannot run: " + strings.Join(plan.Blockers, " ") +
-			" Nothing has been written, and there is no row here that could start it."})
-	} else {
-		facts = append(facts, iconFact{Label: "Would be copied", Value: factClause(plan.Stats.Summary()) + "."})
+		blocked := make([]iconFact, 0, len(plan.Blockers)+1)
+		for _, blocker := range plan.Blockers {
+			blocked = append(blocked, iconFact{Icon: wslFactIconLimit, Label: "Blocked", Value: factClause(blocker)})
+		}
+		blocked = append(blocked, iconFact{Icon: wslFactIconReadOnly, Label: "Writes",
+			Value: "nothing, and no row here could start it"})
+		return append(areas, factArea{Name: "Cannot run", Facts: blocked})
 	}
 
+	areas[0].Facts = append(areas[0].Facts, iconFact{Icon: wslFactIconFolder, Label: "Would copy",
+		Value: factClause(plan.Stats.Summary())})
+
+	// The space is two numbers and one comparison: what the copy would take, and what is free behind
+	// the destination. The block rounding a filesystem applies is the one caveat that belongs to the
+	// number, so it keeps its own row beside it instead of becoming a clause of a sentence.
 	if plan.SpaceKnown {
-		estimate := "The copy would take about " + humanBytes(plan.Stats.Bytes) +
-			", which counts the files' sizes and not the block rounding a filesystem applies."
+		free := humanBytes(plan.FreeBytes) + " free behind the destination"
 		if plan.Stats.Bytes > plan.FreeBytes {
-			estimate = "The copy would take about " + humanBytes(plan.Stats.Bytes) + ", and only " +
-				humanBytes(plan.FreeBytes) + " is free behind the destination."
+			free = "only " + humanBytes(plan.FreeBytes) + " free: it would not fit"
 		}
-		facts = append(facts, iconFact{Label: "Space", Value: estimate + " " + humanBytes(plan.FreeBytes) + " is free behind " +
-			destination + "."})
+		areas = append(areas, factArea{Name: "Space", Facts: []iconFact{
+			{Icon: wslFactIconDisk, Label: "Would take", Value: "about " + humanBytes(plan.Stats.Bytes)},
+			{Icon: wslFactIconDisk, Label: "Free", Value: free},
+			{Icon: wslFactIconLimit, Label: "Counts", Value: "the files' sizes, not the block rounding"},
+		}})
 	} else {
-		facts = append(facts, iconFact{Label: "Space", Value: "The space behind the destination could not be read, so this " +
-			"preview cannot say whether the copy would fit."})
+		areas = append(areas, factArea{Name: "Space", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Not read", Value: "whether the copy would fit is unknown"},
+		}})
 	}
 
 	if len(plan.Exclusions) > 0 {
-		facts = append(facts, iconFact{Label: "Left behind", Value: factClause(strings.Join(plan.Exclusions, ", ")) + "."})
+		areas = append(areas, factArea{Name: "Left behind", Facts: []iconFact{
+			{Icon: wslFactIconFolder, Label: "Excluded", Value: strings.Join(plan.Exclusions, ", ")},
+		}})
 	}
 	if len(plan.Warnings) > 0 {
-		facts = append(facts, iconFact{Label: "Warnings", Value: "Worth knowing: " + strings.Join(plan.Warnings, " ")})
+		rows := make([]iconFact, 0, len(plan.Warnings))
+		for _, warning := range plan.Warnings {
+			rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Warning", Value: factClause(warning)})
+		}
+		areas = append(areas, factArea{Name: "Worth knowing", Facts: rows})
 	}
-
 	if len(plan.Instructions) > 0 {
-		facts = append(facts, iconFact{Label: "Instructions", Value: "The same work by hand, quoted and never executed by this " +
-			"installer: " + strings.Join(plan.Instructions, " ") + "."})
+		rows := make([]iconFact, 0, len(plan.Instructions))
+		for _, instruction := range plan.Instructions {
+			rows = append(rows, iconFact{Icon: wslFactIconAction, Label: "By hand", Value: instruction})
+		}
+		areas = append(areas, factArea{Name: "The same work by hand", Facts: rows})
 	}
 
-	facts = append(facts, iconFact{Label: "Source", Value: "The source is not modified: nothing is deleted, moved or " +
-		"renamed, and every byte is written into the destination directory above. After the copy, each " +
-		"copied file is compared against the source; a difference is reported, never repaired quietly."})
-	return facts
+	return append(areas, factArea{Name: "The source", Facts: []iconFact{
+		{Icon: wslFactIconReadOnly, Label: "Untouched", Value: "nothing deleted, moved or renamed"},
+		{Icon: wslFactIconEvidence, Label: "Verified", Value: "each copied file compared against the source afterwards"},
+	}})
 }
 
 // wslMigrationCopyingParagraphs is what the screen says while the copy runs, as the compact body's
@@ -588,17 +673,21 @@ func wslMigrationCopyingParagraphs(state wslMigrationState) []string {
 
 // wslMigrationCopyingFacts is what the screen says while the copy runs.
 func wslMigrationCopyingFacts(state wslMigrationState) []iconFact {
-	facts := []iconFact{
-		{Label: "In flight", Value: "The copy is in flight. It writes only inside the destination directory and never opens a " +
-			"source path for writing. Stopping it leaves the entries already copied where they are: this " +
-			"installer does not delete a partial copy, because a half-copy is evidence about what went " +
-			"wrong and removing it would destroy that evidence."},
-	}
+	return factAreaFacts(wslMigrationCopyingAreas(state))
+}
+
+// wslMigrationCopyingAreas is what the screen says while the copy runs: where it writes, how far it is,
+// and what stopping it does.
+func wslMigrationCopyingAreas(state wslMigrationState) []factArea {
+	rows := []iconFact{{Icon: wslFactIconWrites, Label: "In flight",
+		Value: "writes only inside the destination, never the source"}}
 	if state.ProgressSeen && state.Progress.Total > 0 {
-		facts = append(facts, iconFact{Label: "Progress", Value: fmt.Sprintf("%d of %d entries have been placed.",
-			state.Progress.Done, state.Progress.Total)})
+		rows = append(rows, iconFact{Icon: wslFactIconBenefit, Label: "Progress",
+			Value: fmt.Sprintf("%d of %d entries placed", state.Progress.Done, state.Progress.Total)})
 	}
-	return facts
+	rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Stopping",
+		Value: "leaves what is already copied where it is; a half-copy is evidence"})
+	return []factArea{{Name: "Copying", Facts: rows}}
 }
 
 // wslMigrationOutcomeParagraphs is the run's own report, as the compact body's paragraphs. It is the
@@ -609,53 +698,63 @@ func wslMigrationOutcomeParagraphs(state wslMigrationState) []string {
 
 // wslMigrationOutcomeFacts is the run's own report, verified or not.
 func wslMigrationOutcomeFacts(state wslMigrationState) []iconFact {
-	report := state.Report
-	var facts []iconFact
+	return factAreaFacts(wslMigrationOutcomeAreas(state))
+}
 
+// wslMigrationOutcomeAreas is the run's own report as areas: the verdict, the verification's own
+// limits, and what the run left for the reader to finish by hand. Every difference and every note is
+// one row, so a copy that went wrong names each one instead of folding them into a sentence.
+func wslMigrationOutcomeAreas(state wslMigrationState) []factArea {
+	report := state.Report
+
+	verdict := make([]iconFact, 0, 4)
 	if state.ReportErr != "" {
-		facts = append(facts, iconFact{Label: "Report", Value: "The copy stopped: " + state.ReportErr + "."})
+		verdict = append(verdict, iconFact{Icon: wslFactIconLimit, Label: "Stopped", Value: factClause(state.ReportErr)})
 	}
 	if report.Cancelled {
-		facts = append(facts, iconFact{Label: "Cancelled", Value: "The copy was stopped before it finished. What was copied " +
-			"before that is still in " + report.Destination + ", and the source is exactly as it was."})
+		verdict = append(verdict, iconFact{Icon: wslFactIconLimit, Label: "Cancelled",
+			Value: "what was copied is still in " + report.Destination + "; the source is as it was"})
 	}
-
 	switch {
 	case report.Verified:
-		facts = append(facts, iconFact{Label: "Verification", Value: "Verified: every copied entry matches the source. " +
-			humanBytes(report.VerifiedBytes) + " were compared byte-for-byte."})
+		verdict = append(verdict, iconFact{Icon: wslFactIconEvidence, Label: "Verification",
+			Value: "every copied entry matches the source, " + humanBytes(report.VerifiedBytes) + " compared"})
 	case len(report.Failures) > 0:
-		facts = append(facts, iconFact{Label: "Verification", Value: "Not verified: the copy has differences against the source, " +
-			"named below. Nothing has been deleted or changed in the source, and nothing was repaired " +
-			"silently."})
+		verdict = append(verdict, iconFact{Icon: wslFactIconLimit, Label: "Verification",
+			Value: "differences against the source, named below"})
 	case state.ReportErr == "" && !report.Cancelled:
-		facts = append(facts, iconFact{Label: "Verification", Value: "The copy finished but could not be verified against the " +
-			"source, so this screen does not claim it matches."})
+		verdict = append(verdict, iconFact{Icon: wslFactIconLimit, Label: "Verification",
+			Value: "not verified: this screen does not claim the copy matches"})
 	}
+	verdict = append(verdict, iconFact{Icon: wslFactIconFolder, Label: "Placed",
+		Value: factClause(report.Copied.Summary() + " in " + report.Destination)})
 
-	facts = append(facts, iconFact{Label: "Placed", Value: factClause(report.Copied.Summary()+" in "+report.Destination) + "."})
+	areas := []factArea{{Name: "The copy", Facts: verdict}}
+
+	var limits []iconFact
 	if report.SizeOnlyFiles > 0 {
-		facts = append(facts, iconFact{Label: "Limit", Value: fmt.Sprintf("%d files were larger than the per-file comparison "+
-			"budget and were covered by size and mode alone; the report states that as a limit rather "+
-			"than counting them as compared.", report.SizeOnlyFiles)})
+		limits = append(limits, iconFact{Icon: wslFactIconLimit, Label: "Limit",
+			Value: fmt.Sprintf("%d files were covered by size and mode alone", report.SizeOnlyFiles)})
 	}
-	if len(report.VerificationNotes) > 0 {
-		facts = append(facts, iconFact{Label: "Notes", Value: strings.Join(report.VerificationNotes, " ")})
+	for _, note := range report.VerificationNotes {
+		limits = append(limits, iconFact{Icon: wslFactIconEvidence, Label: "Note", Value: factClause(note)})
 	}
-	if len(report.Failures) > 0 {
-		facts = append(facts, iconFact{Label: "Differences", Value: factClause(strings.Join(report.Failures, " ")) + "."})
+	for _, failure := range report.Failures {
+		limits = append(limits, iconFact{Icon: wslFactIconLimit, Label: "Difference", Value: factClause(failure)})
 	}
-	facts = append(facts, iconFact{Label: "Source", Value: "The source was never written to: this installer does not delete, " +
-		"move or rename anything, and no instruction below has been run."})
+	if len(limits) > 0 {
+		areas = append(areas, factArea{Name: "The verification's limits", Facts: limits})
+	}
 
+	toDo := []iconFact{{Icon: wslFactIconReadOnly, Label: "Source",
+		Value: "never written to: nothing deleted, moved or renamed"}}
+	for _, instruction := range report.Instructions {
+		toDo = append(toDo, iconFact{Icon: wslFactIconAction, Label: "By hand", Value: instruction})
+	}
 	if len(report.Instructions) > 0 {
-		facts = append(facts, iconFact{Label: "To finish by hand", Value: "when you have checked the copy yourself: " +
-			strings.Join(report.Instructions, " ") + "."})
+		toDo = append(toDo, iconFact{Icon: wslFactIconWhy, Label: "When", Value: "once you have checked the copy yourself"})
 	}
-	if len(report.VerificationNotes) == 0 && len(report.Failures) == 0 && !report.Verified {
-		facts = append(facts, iconFact{Label: "Source unchanged", Value: "Nothing in the source has been changed."})
-	}
-	return facts
+	return append(areas, factArea{Name: "Left for you", Facts: toDo})
 }
 
 // handleWSLMigrationKeys drives the copy's phases. Each row that acts where it stands runs on the

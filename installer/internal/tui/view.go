@@ -2258,6 +2258,9 @@ func (m Model) renderThemeScreen(description func(Model) []string, screenNotice 
 	if end-start < scrollable {
 		vital = scrollVital("Showing", start+1, end, scrollable)
 	}
+	if m.Screen == ScreenDiskCleaner {
+		vital = m.diskCleanerRangeVital(start, end)
+	}
 	if suffix := m.sectionVitalSuffix(); suffix != "" {
 		if vital == "" {
 			vital = suffix
@@ -2266,6 +2269,30 @@ func (m Model) renderThemeScreen(description func(Model) []string, screenNotice 
 		}
 	}
 	return m.frame(m.headerName(), vital, body, hints)
+}
+
+// diskCleanerRangeVital is the disk cleaner's header range, measured in findings: a
+// heading is a divider between them, and counting one as a row of the list would have
+// the header report a range that names no finding. An empty answer means every
+// finding is on screen, which is the state that gets no filler text.
+func (m Model) diskCleanerRangeVital(start, end int) string {
+	first, shown, total := 0, 0, 0
+	for i, row := range m.diskCleanRows() {
+		if row.item < 0 {
+			continue
+		}
+		total++
+		if i < start {
+			first++
+		}
+		if i >= start && i < end {
+			shown++
+		}
+	}
+	if shown == 0 || shown >= total {
+		return ""
+	}
+	return scrollVital("Showing", first+1, first+shown, total)
 }
 
 // sectionVitalSuffix is what a section screen's header says beside the range of
@@ -2736,47 +2763,105 @@ func (m Model) wslResourceDescription() []string {
 	return factProse(m.wslResourceFacts())
 }
 
-// wslResourceFacts is that answer as facts.
+// wslResourceFacts is that answer as one list of facts, which is what its prose is
+// derived from: a flatten of wslResourceAreas.
 func (m Model) wslResourceFacts() []iconFact {
+	return factAreaFacts(m.wslResourceAreas())
+}
+
+// wslResourceAreas is the WSL resource screen's detail as areas: the capacities this
+// host reported, the recommendation and the rule it follows, what the file holds
+// today, what the memory guard holds on the running machine, and what a write keeps.
+//
+// The screen used to state the rule as one five-clause sentence ("Memory is three
+// quarters of the host's RAM rounded down to 512 MB, capped so Windows keeps 4 GiB
+// wherever that can be honoured, and floored at half the host, which is what decides
+// on a host too small to honour both; processors are every logical CPU the host
+// reports except one...") -- the three keys and the four proportions they follow in
+// one value. Each proportion is a row now, so a reader checks the rule the number in
+// the plan was derived from instead of parsing it out of a paragraph.
+func (m Model) wslResourceAreas() []factArea {
 	state := m.WSLState
 	if reason := m.wslResourcesUnavailableReason(); reason != "" {
-		return []iconFact{{Label: "WSL resources", Value: reason}}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "WSL resources", Value: reason}}}}
 	}
 
-	// The values come first: the host's capacities, the recommendation, and what
-	// the file holds today, so the three numbers the screen exists for are read
-	// before the derivation that produced them. The guard's report follows, ahead of
-	// the instruction that applies the change, because it is the one line here about
-	// the machine the user is working on rather than the file being edited, and it
-	// is the half with no second channel: the apply instruction is repeated by the
-	// write's own notice, so a short frame can afford to cut it, while a missing
-	// protection can stop the distribution before the write is ever made. Then the
-	// formula compressed to one sentence, then the file's own rules.
 	plan := state.Plan
-	facts := []iconFact{
-		{Label: "Host", Value: wslHostParagraph(state.Host)},
-		{Label: "Plan", Value: fmt.Sprintf("Recommended for this host: memory %s, processors %s and swap %s.",
-			wslUnitLabel(plan.MemoryMB, "MB"), wslUnitLabel(plan.Processors, ""), wslUnitLabel(plan.SwapMB, "MB"))},
-		{Label: "File", Value: wslCurrentParagraph(state)},
+
+	// The host's two capacities, and what the plan derived from them, are the numbers
+	// the screen exists for, so they lead.
+	host := []iconFact{}
+	if state.Host.MemoryBytes > 0 {
+		host = append(host, iconFact{Icon: wslFactIconMemory, Label: "Windows RAM",
+			Value: humanBytes(state.Host.MemoryBytes)})
 	}
+	if state.Host.LogicalCPUs > 0 {
+		host = append(host, iconFact{Icon: wslFactIconCPU, Label: "Windows CPUs",
+			Value: fmt.Sprintf("%d", state.Host.LogicalCPUs)})
+	}
+	if len(host) == 0 {
+		// A host whose capacities could not be read has no numbers to draw, so it gets
+		// the one row that says how to give it some: this is the datum that cannot
+		// become a value, because there is no value.
+		host = append(host, iconFact{Icon: wslFactIconLimit, Label: "Host",
+			Value: "not read: set DOTFILES_WSL_HOST_MEMORY_MB and DOTFILES_WSL_HOST_CPUS, or set the values below"})
+	}
+
+	planFacts := []iconFact{
+		{Icon: wslFactIconMemory, Label: "Memory", Value: wslUnitLabel(plan.MemoryMB, "MB")},
+		{Icon: wslFactIconCPU, Label: "Processors", Value: wslUnitLabel(plan.Processors, "")},
+		{Icon: wslFactIconMemory, Label: "Swap", Value: wslUnitLabel(plan.SwapMB, "MB")},
+	}
+
+	rule := []iconFact{
+		{Icon: wslFactIconMemory, Label: "Memory",
+			Value: fmt.Sprintf("three quarters of the host's RAM, rounded down to %d MB", wslMemoryStepMB)},
+		{Icon: wslFactIconMemory, Label: "Windows keeps",
+			Value: fmt.Sprintf("%s, wherever that can be honoured", humanBytes(wslWindowsReserveBytes))},
+		{Icon: wslFactIconMemory, Label: "Floor", Value: "half the host, which decides when both cannot be met"},
+		{Icon: wslFactIconCPU, Label: "Processors", Value: "every logical CPU but one, so Windows keeps one"},
+		{Icon: wslFactIconMemory, Label: "Swap", Value: "a quarter of that memory"},
+	}
+
+	areas := []factArea{
+		{Name: "This host", Facts: host},
+		{Name: "Recommended", Facts: planFacts},
+		{Name: "The rule behind it", Facts: rule},
+		{Name: "The file today", Facts: wslCurrentFileFacts(state)},
+	}
+
 	// The guard follows the numbers and comes before how to apply them: what it
-	// reports is the running distribution's own limits, and the failure it names
-	// is the one a short frame must not cut.
-	for _, paragraph := range wslGuardParagraphs(state.Guard) {
-		facts = append(facts, iconFact{Label: "Memory guard", Value: paragraph})
+	// reports is the running distribution's own limits, and the failure it names is
+	// the one a short frame must not cut.
+	if guard := wslGuardAreas(state.Guard); len(guard) > 0 {
+		areas = append(areas, guard...)
 	}
-	facts = append(facts,
-		iconFact{Label: "Apply", Value: "WSL reads .wslconfig when the VM starts, so run `wsl --shutdown` on Windows and reopen the terminal " +
-			"to apply it. This screen does not run it: that would close the session you are working in."},
-		iconFact{Label: "Rule", Value: fmt.Sprintf("Memory is three quarters of the host's RAM rounded down to %d MB, capped so Windows "+
-			"keeps 4 GiB wherever that can be honoured, and floored at half the host, which is what decides on "+
-			"a host too small to honour both; processors are every logical CPU the host reports except one, so "+
-			"Windows keeps one; swap is a quarter of that memory.",
-			wslMemoryStepMB)},
-		iconFact{Label: "Write", Value: "Only the keys the shipped template manages are written. Any other setting in your .wslconfig is kept " +
-			"exactly as it is, and the previous file is backed up beside it as .wslconfig.bak-dotfiles-<stamp> " +
-			"before the write."})
-	return facts
+
+	return append(areas, factArea{Name: "Writing it", Facts: []iconFact{
+		{Icon: wslFactIconWrites, Label: "Writes", Value: "only the keys the shipped template manages"},
+		{Icon: wslFactIconFolder, Label: "Keeps", Value: "every other setting in your .wslconfig, exactly as it is"},
+		{Icon: wslFactIconDisk, Label: "Backup", Value: ".wslconfig.bak-dotfiles-<stamp>, beside the file"},
+		{Icon: wslFactIconShell, Label: "Applies", Value: "wsl --shutdown on Windows, then reopen the terminal"},
+		{Icon: wslFactIconReadOnly, Label: "Runs it", Value: "no: that would close the session you are working in"},
+	}})
+}
+
+// wslCurrentFileFacts is what the user's own file holds today, so the screen
+// separates what is there from what is suggested. A missing file is one row rather
+// than three values that are not in it.
+func wslCurrentFileFacts(state wslResourceState) []iconFact {
+	if !state.HasFile {
+		return []iconFact{{Icon: wslFactIconLimit, Label: "No file",
+			Value: "there is no .wslconfig at " + state.Path + " yet; writing one creates it"}}
+	}
+	current := state.Current
+	return []iconFact{
+		{Icon: wslFactIconConfig, Label: "Path", Value: state.Path},
+		{Icon: wslFactIconMemory, Label: "Memory", Value: wslResourceLabel(current.MemoryMB, "MB")},
+		{Icon: wslFactIconCPU, Label: "Processors", Value: wslResourceLabel(current.Processors, "")},
+		{Icon: wslFactIconMemory, Label: "Swap", Value: wslResourceLabel(current.SwapMB, "MB")},
+		{Icon: wslFactIconWhy, Label: "An absent key", Value: "WSL's own proportional default"},
+	}
 }
 
 // wslGuardRepairRow is the screen's row for the memory guard. It is the one row
@@ -2784,31 +2869,44 @@ func (m Model) wslResourceFacts() []iconFact {
 // two files, restarts its unit, and then reports what the host holds.
 const wslGuardRepairRow = "[g] Repair the WSL memory guard"
 
-// wslGuardParagraphs is what the screen says about the memory guard. It names
-// what each missing protection costs rather than warning in general terms,
-// because the two halves fail in opposite directions and both were measured on
-// 2026-10-16: OOMPolicy=stop turned one OOM kill into the whole distribution
+// wslGuardAreas is what the screen says about the memory guard, as rows: whether it
+// is installed and running, the three values init.scope really carries, and -- when a
+// protection is missing -- what that costs, in the terms the incident was measured
+// in (2026-10-16: OOMPolicy=stop turned one OOM kill into the whole distribution
 // stopping, twice, and a numeric memory.high turned a spike into a six-minute
-// freeze instead of a kill.
-func wslGuardParagraphs(g wslGuardState) []string {
+// freeze instead of a kill). Those two failures are the one part of this screen that
+// cannot become a datum: each is a measured incident and its consequence, so each
+// keeps one short row of its own rather than being cut to a word.
+func wslGuardAreas(g wslGuardState) []factArea {
 	if !g.Installed {
 		reason := g.Reason
 		if reason == "" {
 			reason = "its payload and its unit are not where systemd reads them"
 		}
-		return []string{fmt.Sprintf("The WSL memory guard is not installed on this host: %s. It is what caps the "+
-			"distribution's own scope and what keeps one killed process from stopping it; the installation step "+
-			"installs it, and the row below installs it here without a full run.", reason)}
+		return []factArea{{Name: "Memory guard", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Installed", Value: "no: " + factClause(reason)},
+			{Icon: wslFactIconWhy, Label: "What it does", Value: "caps the distribution's scope; one killed process cannot stop it"},
+			{Icon: wslFactIconAction, Label: "Installed by", Value: "the installation step, or the repair row below"},
+		}}}
 	}
 
-	paragraphs := []string{fmt.Sprintf("The memory guard is installed and %s. init.scope carries memory.high=%s, "+
-		"memory.max=%s and OOMPolicy=%s.",
-		wslGuardActiveLabel(g), wslGuardText(g.HighBytes), wslGuardCapLabel(g.MaxBytes), wslGuardText(g.OOMPolicy))}
-
+	rows := []iconFact{
+		{Icon: wslFactIconEvidence, Label: "Installed", Value: wslGuardActiveLabel(g)},
+		{Icon: wslFactIconMemory, Label: "memory.high", Value: wslGuardText(g.HighBytes)},
+		{Icon: wslFactIconMemory, Label: "memory.max", Value: wslGuardText(wslGuardCapLabel(g.MaxBytes))},
+		{Icon: wslFactIconLimit, Label: "OOMPolicy", Value: wslGuardText(g.OOMPolicy)},
+	}
 	if failure := wslGuardFailureMode(g); failure != "" {
-		paragraphs = append(paragraphs, failure)
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Risk", Value: factClause(failure)})
 	}
-	return paragraphs
+	return []factArea{{Name: "Memory guard", Facts: rows}}
+}
+
+// wslGuardParagraphs is what the screen says about the memory guard, as the prose the
+// compact body prints. It is derived from wslGuardAreas, so the rows and the words
+// cannot describe one protection two ways.
+func wslGuardParagraphs(g wslGuardState) []string {
+	return factProse(factAreaFacts(wslGuardAreas(g)))
 }
 
 // wslGuardFailureMode names what a missing protection costs, in the terms the

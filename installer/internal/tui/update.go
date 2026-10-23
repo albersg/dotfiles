@@ -2749,7 +2749,7 @@ func (m Model) handleUtilitiesKeys(key string) (tea.Model, tea.Cmd) {
 		case selected == utilitiesDiskCleanerRow:
 			// The disk cleaner is one level in, for the same reason the other
 			// utilities are: the section is a list of jobs. Nothing is scanned on the
-			// way in -- the screen's own scan row starts that -- so opening the screen
+			// way in -- the screen's own [s] key starts that -- so opening the screen
 			// never puts a walk of the machine between the press and the screen.
 			m.Screen = ScreenDiskCleaner
 			m.Cursor = 0

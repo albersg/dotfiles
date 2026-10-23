@@ -584,41 +584,75 @@ func (m Model) networkNoticeLine() string {
 // networkDescription is the body under the rows, and it follows the cursor: the
 // field while it is open, the report text in the preview, the detail of the
 // check the cursor is on, and otherwise the answer.
+//
+// Every state of it is the prose of networkAreas, which is what the card beside the
+// list draws: one row per fact, so the floor and the wide frame cannot explain one
+// check two ways.
 func (m Model) networkDescription() []string {
+	return factProse(factAreaFacts(m.networkAreas()))
+}
+
+// networkAreas is the diagnosis's detail as the areas of whichever state the screen
+// is in: the destination being typed, the run's own answer, the step under the
+// cursor, or the report exactly as it would be saved.
+//
+// Its bodies were paragraphs that mixed the fact with its justification in one value
+// ("The latency reported here is the TCP handshake's, never a ping's: a network that
+// drops ICMP is diagnosed exactly like one that answers it."), which is a row and a
+// sentence. The row carries the fact and the sentence is dropped where it only
+// restated it; what cannot become a row is the saved report itself, which is a file's
+// own lines and keeps them (below).
+func (m Model) networkAreas() []factArea {
 	switch {
 	case m.Network.InputActive:
-		return m.networkInputDescription()
+		return m.networkInputAreas()
 	case m.Network.Preview:
-		return m.networkPreviewDescription()
+		return m.networkPreviewAreas()
 	case len(m.networkChecks()) == 0:
-		return m.networkIntroDescription()
+		return m.networkIntroAreas()
 	}
 	if check, ok := m.selectedNetworkCheck(); ok {
-		return networkCheckParagraphs(check)
+		return networkCheckAreas(check)
 	}
-	return m.networkOverviewDescription()
+	return m.networkOverviewAreas()
 }
 
 // networkInputDescription is the field: what to type, what is typed, the reason
 // the last attempt was refused when there is one, and what Enter does.
 func (m Model) networkInputDescription() []string {
-	paragraphs := []string{
-		"Type the destination to diagnose: a host name, an IPv4 or IPv6 address, a host:port, an " +
-			"internationalized name, or a complete http/https URL. It is validated here first, so a " +
-			"destination that cannot be diagnosed is refused rather than dialled.",
-	}
-	field := "Target: ▏"
+	return factProse(factAreaFacts(m.networkInputAreas()))
+}
+
+// networkInputAreas is the field as rows: what it accepts, the value in it now, and
+// the two keys that act on it.
+func (m Model) networkInputAreas() []factArea {
+	target := "▏"
 	if m.Network.Input != "" {
-		field = "Target: " + m.Network.Input + "▏"
+		target = m.Network.Input + "▏"
 	}
-	paragraphs = append(paragraphs, field)
+	rows := []iconFact{
+		{Icon: wslFactIconAction, Label: "Target", Value: target},
+		{Icon: wslFactIconEvidence, Label: "Accepts",
+			Value: "a host, an IPv4 or IPv6 address, host:port, an internationalized name, or an http/https URL"},
+		{Icon: wslFactIconWhy, Label: "Validated", Value: "here first: a destination that cannot be diagnosed is refused"},
+	}
 	if m.Network.InputErr != "" {
-		paragraphs = append(paragraphs, "Refused: "+m.Network.InputErr)
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Refused", Value: factClause(m.Network.InputErr)})
 	}
-	paragraphs = append(paragraphs,
-		"Enter diagnoses it, Esc closes the field. A host with no port is checked on port 443, and the "+
-			"report says which port was assumed. Credentials in a URL are never sent and never shown.")
-	return paragraphs
+	return append(rowsAreas("The destination", rows),
+		factArea{Name: "The keys", Facts: []iconFact{
+			{Icon: wslFactIconBenefit, Label: "Enter", Value: "diagnoses it"},
+			{Icon: wslFactIconReadOnly, Label: "Escape", Value: "closes the field"},
+			{Icon: wslFactIconLimit, Label: "No port", Value: "checked on 443, and the report says the port was assumed"},
+			{Icon: wslFactIconReadOnly, Label: "Credentials", Value: "in a URL are never sent and never shown"},
+		}},
+	)
+}
+
+// rowsAreas wraps one block of rows in the single area its name gives, which is how a
+// state with one section is built without a second shape.
+func rowsAreas(name string, rows []iconFact) []factArea {
+	return []factArea{{Name: name, Facts: rows}}
 }
 
 // networkPreviewDescription is the report as it would be saved, line for line,
@@ -626,64 +660,89 @@ func (m Model) networkInputDescription() []string {
 // is written from this state: the save row does that, and it is offered only
 // after this preview has been shown.
 func (m Model) networkPreviewDescription() []string {
-	paragraphs := []string{
-		"This is the report exactly as it would be written, after the redaction that is always applied: " +
-			"credentials never appear, and a request's query string is not part of it.",
+	return factProse(factAreaFacts(m.networkPreviewAreas()))
+}
+
+// networkPreviewAreas is the preview as rows: what redaction is always applied, the
+// anonymization in force, where it would be saved -- and then the report itself.
+//
+// The report is the one value here that cannot become rows: it is a file's own lines,
+// exactly as it would be written, and wrapping them into labelled facts would join
+// lines that mean different things (a check's evidence, its cause and its next step
+// all live in one check's block). It is one labelled block, drawn line by line by
+// factLines' block path.
+func (m Model) networkPreviewAreas() []factArea {
+	rows := []iconFact{
+		{Icon: wslFactIconReadOnly, Label: "Redacted",
+			Value: "credentials never appear, and a request's query string is not part of it"},
 	}
 	switch {
 	case m.Network.Anonymize:
-		paragraphs = append(paragraphs, "Anonymization is on: every address, the user name, the home "+
-			"directory and the machine name are replaced, so this text can be sent to somebody else. The "+
-			"host being diagnosed is kept, because the report has to say what could not be reached.")
+		rows = append(rows, iconFact{Icon: wslFactIconReadOnly, Label: "Anonymized",
+			Value: "addresses, user name, home directory and machine name replaced; the host diagnosed is kept"})
 	case m.Network.ReportPath != "":
-		paragraphs = append(paragraphs, "Anonymization is off: the report names this machine's addresses "+
-			"and interfaces. Turn it on to replace them.")
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Anonymized",
+			Value: "off: the report names this machine's addresses and interfaces"})
 	}
 	if m.Network.ReportPath != "" {
-		paragraphs = append(paragraphs, "It would be saved to "+m.Network.ReportPath+".")
+		rows = append(rows, iconFact{Icon: wslFactIconFolder, Label: "Saved to", Value: m.Network.ReportPath})
 	} else {
-		paragraphs = append(paragraphs, "There is no state directory to save it in here, so the report is "+
-			"shown and not written.")
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Saved to",
+			Value: "nowhere: there is no state directory here, so it is shown and not written"})
 	}
 
-	text := m.Network.ReportText
+	areas := rowsAreas("The file", rows)
+	text := strings.TrimRight(m.Network.ReportText, "\n")
 	if strings.TrimSpace(text) == "" {
-		return append(paragraphs, "There is no report to show yet.")
+		return append(areas, factArea{Name: "The report", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Report", Value: "there is no report to show yet"},
+		}})
 	}
-	paragraphs = append(paragraphs, "")
-	return append(paragraphs, strings.Split(strings.TrimRight(text, "\n"), "\n")...)
+	return append(areas, factArea{Name: "The report", Facts: []iconFact{
+		{Icon: wslFactIconEvidence, Label: "Report", Value: text},
+	}})
 }
 
 // networkIntroDescription is what the screen says before it has run anything: the
 // stages it separates, what it reaches for, and the two promises -- it changes
 // nothing, and every check is bounded.
 func (m Model) networkIntroDescription() []string {
+	return factProse(factAreaFacts(m.networkIntroAreas()))
+}
+
+// networkIntroAreas is the screen before a run as rows: the stages it separates, what
+// the checks reach for, and the promises they carry -- one row per promise, with the
+// bounds read from the engine's own defaults rather than restated here.
+func (m Model) networkIntroAreas() []factArea {
 	bounds := netdiag.DefaultBounds()
-	paragraphs := []string{
-		"It separates the stages of a connection: the local network, the resolver, the transport, the " +
-			"certificate and the application. A name that does not resolve, a port that refuses, a socket " +
-			"a firewall keeps silent and a certificate this machine does not trust are reported as the " +
-			"different failures they are -- so the report names the stage that stopped it, or says plainly " +
-			"that there is not enough evidence to name one.",
+
+	stages := []iconFact{
+		{Icon: wslFactIconResolver, Label: "Stages",
+			Value: "local network, resolver, transport, certificate, application"},
+		{Icon: wslFactIconWhy, Label: "Verdict",
+			Value: "names the stage that stopped it, or says there is not enough evidence to name one"},
 	}
 	if destination := networkDestination(); !destination.IsZero() {
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"The checks above reach for %s -- %s -- and nothing else leaves this machine. Type a "+
-				"destination in the row above to diagnose that instead.",
-			destination.Endpoint().Describe(), destination.Source))
+		stages = append(stages,
+			iconFact{Icon: wslFactIconAction, Label: "Reaches for", Value: destination.Endpoint().Describe()},
+			iconFact{Icon: wslFactIconEvidence, Label: "Source", Value: destination.Source},
+			iconFact{Icon: wslFactIconReadOnly, Label: "Nothing else", Value: "no other address leaves this machine"},
+		)
 	}
-	paragraphs = append(paragraphs,
-		fmt.Sprintf("Nothing is changed: no resolver, route, firewall, proxy or certificate setting is "+
-			"written, no verification is skipped, and no tool is installed. Every check is bounded (%s for a "+
-			"resolution, %s for a connection, %s for a request, %s for TLS), the run is cancellable, and "+
-			"the checks run one at a time so a slow link is diagnosed rather than saturated.",
-			netdiag.Duration(bounds.DNS),
-			netdiag.Duration(bounds.TCP),
-			netdiag.Duration(bounds.HTTP),
-			netdiag.Duration(bounds.TLS)),
-		"The latency reported here is the TCP handshake's, never a ping's: a network that drops ICMP is "+
-			"diagnosed exactly like one that answers it.")
-	return paragraphs
+
+	return []factArea{
+		{Name: "What it separates", Facts: stages},
+		{Name: "What it promises", Facts: []iconFact{
+			{Icon: wslFactIconReadOnly, Label: "Writes",
+				Value: "no resolver, route, firewall, proxy or certificate setting; no verification skipped; no tool installed"},
+			{Icon: wslFactIconLimit, Label: "Bounded",
+				Value: fmt.Sprintf("%s to resolve, %s to connect, %s for a request, %s for TLS",
+					netdiag.Duration(bounds.DNS), netdiag.Duration(bounds.TCP),
+					netdiag.Duration(bounds.HTTP), netdiag.Duration(bounds.TLS))},
+			{Icon: wslFactIconBenefit, Label: "Cancellable", Value: "yes, and the checks run one at a time"},
+			{Icon: wslFactIconShell, Label: "Latency", Value: "the TCP handshake's, never a ping's"},
+		}},
+	}
 }
 
 // networkOverviewDescription is the answer: the verdict, the counts, and -- when
@@ -691,46 +750,63 @@ func (m Model) networkIntroDescription() []string {
 // above carry the details of every step, so this body stays the summary a reader
 // can act on without scrolling.
 func (m Model) networkOverviewDescription() []string {
+	return factProse(factAreaFacts(m.networkOverviewAreas()))
+}
+
+// networkOverviewAreas is the answer as rows: the verdict and the counts, the
+// destination, and where the run stopped with what to try next.
+func (m Model) networkOverviewAreas() []factArea {
 	report := m.Network.Report
 	if report == nil {
 		// A run in flight has no report yet, and the screen says so instead of
 		// showing an empty answer.
-		return []string{
-			"Running the checks. Each one is bounded, so the run ends by itself even when a stage never answers.",
-			"The rows below are the steps that have finished; move the cursor onto one to read what it measured.",
-		}
+		return []factArea{{Name: "Running", Facts: []iconFact{
+			{Icon: wslFactIconBenefit, Label: "Running", Value: "each check is bounded, so the run ends by itself"},
+			{Icon: wslFactIconFolder, Label: "Rows below", Value: "the steps that have finished"},
+		}}}
 	}
 
-	paragraphs := []string{networkSentence(report.Verdict())}
 	summary := report.Summary()
-	paragraphs = append(paragraphs, fmt.Sprintf("%d checks: %d ok, %d noted, %d failed, %d undetermined, %d skipped%s.",
-		summary.Total(), summary.OK, summary.Noted, summary.Failed, summary.Unknown, summary.Skipped,
-		networkElapsedClause(report.Elapsed)))
+	verdict := []iconFact{
+		{Icon: wslFactIconBenefit, Label: "Verdict", Value: factClause(networkSentence(report.Verdict()))},
+		{Icon: wslFactIconEvidence, Label: "Checks",
+			Value: fmt.Sprintf("%d checks: %d ok, %d noted, %d failed, %d undetermined, %d skipped",
+				summary.Total(), summary.OK, summary.Noted, summary.Failed, summary.Unknown, summary.Skipped)},
+	}
+	if report.Elapsed > 0 {
+		verdict = append(verdict, iconFact{Icon: wslFactIconShell, Label: "Took", Value: netdiag.Duration(report.Elapsed)})
+	}
 	if report.Endpoint != "" {
 		source := report.Source
 		if source == "" {
 			source = "you entered it"
 		}
-		paragraphs = append(paragraphs, fmt.Sprintf("Destination: %s (%s).", report.Endpoint, source))
+		verdict = append(verdict,
+			iconFact{Icon: wslFactIconAction, Label: "Destination", Value: report.Endpoint},
+			iconFact{Icon: wslFactIconEvidence, Label: "From", Value: source},
+		)
 	}
 
+	areas := []factArea{{Name: "The answer", Facts: verdict}}
 	if fault, ok := report.FaultCheck(); ok {
-		paragraphs = append(paragraphs, fmt.Sprintf("Where it stopped: %s — %s.", fault.Stage.Title(), fault.Title))
+		stopped := []iconFact{
+			{Icon: wslFactIconLimit, Label: "Stopped at", Value: fault.Stage.Title() + " — " + fault.Title},
+		}
 		if fault.Cause != "" {
-			paragraphs = append(paragraphs, "Cause: "+networkSentence(fault.Cause))
+			stopped = append(stopped, iconFact{Icon: wslFactIconWhy, Label: "Cause", Value: factClause(networkSentence(fault.Cause))})
 		}
 		if fault.Next != "" {
-			paragraphs = append(paragraphs, "Next check: "+networkSentence(fault.Next))
+			stopped = append(stopped, iconFact{Icon: wslFactIconAction, Label: "Next check", Value: factClause(networkSentence(fault.Next))})
 		}
 		if fault.Manual != "" {
-			paragraphs = append(paragraphs, "By hand: "+fault.Manual)
+			stopped = append(stopped, iconFact{Icon: wslFactIconShell, Label: "By hand", Value: fault.Manual})
 		}
+		areas = append(areas, factArea{Name: "Where it stopped", Facts: stopped})
 	}
 
-	paragraphs = append(paragraphs,
-		"Move the cursor onto a step to read everything that step measured; the report text can be reviewed "+
-			"and saved from the rows below.")
-	return paragraphs
+	return append(areas, factArea{Name: "Reading a step", Facts: []iconFact{
+		{Icon: wslFactIconFolder, Label: "Cursor", Value: "move it onto a step to read everything that step measured"},
+	}})
 }
 
 // networkCheckParagraphs is one step in full: what was asked, what answered, how
@@ -738,31 +814,43 @@ func (m Model) networkOverviewDescription() []string {
 // next check and the command to run by hand. It is the same content the saved
 // report carries for that step.
 func networkCheckParagraphs(check netdiag.Check) []string {
-	paragraphs := []string{
-		fmt.Sprintf("%s — %s", check.Stage.Title(), check.Title),
-		fmt.Sprintf("Status: %s.", check.Status),
+	return factProse(factAreaFacts(networkCheckAreas(check)))
+}
+
+// networkCheckAreas is one step as rows: the stage and the question, the status, how
+// long it took, each line of evidence on its own row, and what to try next. The lines
+// the probes recorded are one row each rather than one paragraph, because a step's
+// evidence is a list of readings and not a sentence.
+func networkCheckAreas(check netdiag.Check) []factArea {
+	rows := []iconFact{
+		{Icon: wslFactIconFinding, Label: "Step", Value: check.Stage.Title() + " — " + check.Title},
+		{Icon: wslFactIconBenefit, Label: "Status", Value: check.Status.String()},
 	}
 	if check.Duration > 0 {
-		paragraphs = append(paragraphs, "Took: "+netdiag.Duration(check.Duration)+".")
+		rows = append(rows, iconFact{Icon: wslFactIconShell, Label: "Took", Value: netdiag.Duration(check.Duration)})
 	}
 	if len(check.Evidence) == 0 {
-		paragraphs = append(paragraphs, "No evidence was recorded for this step.")
-	} else {
-		paragraphs = append(paragraphs, "Evidence:")
-		for _, line := range check.Evidence {
-			paragraphs = append(paragraphs, "  "+line)
-		}
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Evidence", Value: "none was recorded for this step"})
 	}
+	for _, line := range check.Evidence {
+		rows = append(rows, iconFact{Icon: wslFactIconEvidence, Label: "Evidence", Value: line})
+	}
+
+	areas := rowsAreas("The step", rows)
+	var next []iconFact
 	if check.Cause != "" {
-		paragraphs = append(paragraphs, "Cause: "+networkSentence(check.Cause))
+		next = append(next, iconFact{Icon: wslFactIconWhy, Label: "Cause", Value: factClause(networkSentence(check.Cause))})
 	}
 	if check.Next != "" {
-		paragraphs = append(paragraphs, "Next check: "+networkSentence(check.Next))
+		next = append(next, iconFact{Icon: wslFactIconAction, Label: "Next check", Value: factClause(networkSentence(check.Next))})
 	}
 	if check.Manual != "" {
-		paragraphs = append(paragraphs, "By hand: "+check.Manual)
+		next = append(next, iconFact{Icon: wslFactIconShell, Label: "By hand", Value: check.Manual})
 	}
-	return paragraphs
+	if len(next) > 0 {
+		areas = append(areas, factArea{Name: "What to try", Facts: next})
+	}
+	return areas
 }
 
 // networkElapsedClause is how long the run took, or nothing when it took no

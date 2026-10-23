@@ -14,24 +14,24 @@
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
-                                                                                                                                                                
-                                                                                                                                                                
   ╭─ Development environment ──────────────────────────────────────────╮  ╭─ Details ────────────────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
-  │ ▸ Error: ~/.ssh has mode 0755                                      │  │ 5 checks ran, 5 answers finished. The list is the problems and the unknown       │  
-  │ ! Warning: PATH entry 4 of 9: ~/bin                                │  │ answers only; press t for all of them.                                           │  
-  │ ? Unknown: git resolves to /usr/bin/git, 2 copies, and no version  │  │ Error — ~/.ssh has mode 0755                                                     │  
-  │   could be read                                                    │  │ Evidence: the directory has mode 0755, and OpenSSH wants 0700                    │  
-  │ ────────────────────────────────────────────────────────────────── │  │ Impact: OpenSSH refuses a private key inside a directory others can read, so     │  
-  │   [a] Run every check                                              │  │ every ssh command fails until it is fixed.                                       │  
-  │   Run only: …                                                      │  │ What to do: The doctor can set it to 0700 for you, or run `chmod 700 ~/.ssh`.    │  
-  │   [r] Retry the checks that could not run                          │  │                                                                                  │  
-  │   [w] Write the report to a file                                   │  │ 5 checks: 1 error, 1 warning, 1 unknown, 1 not applicable, 1 ok. Kept at         │  
-  │   [t] Show every finding                                           │  │ ~/.local/state/dotfiles/doctor-report.txt                                        │  
-  │ ────────────────────────────────────────────────────────────────── │  ╰──────────────────────────────────────────────────────────────────────────────────╯  
-  │ ← Back                                                             │                                                                                        
-  ╰────────────────────────────────────────────────────────────────────╯                                                                                        
-                                                                                                                                                                
+  │ ▸ Error: ~/.ssh has mode 0755                                      │  │  Ran                5 checks                                                    │  
+  │ ! Warning: PATH entry 4 of 9: ~/bin                                │  │  Answered           5 answers                                                   │  
+  │ ? Unknown: git resolves to /usr/bin/git, 2 copies, and no version  │  │  Listed             the problems and the unknown answers only                   │  
+  │   could be read                                                    │  ├─ Under the cursor ───────────────────────────────────────────────────────────────┤  
+  │ ────────────────────────────────────────────────────────────────── │  │  Finding            ~/.ssh has mode 0755                                        │  
+  │   [a] Run every check                                              │  │  State              Error                                                       │  
+  │   Run only: …                                                      │  │  Evidence           the directory has mode 0755, and OpenSSH wants 0700         │  
+  │   [r] Retry the checks that could not run                          │  │  Impact             OpenSSH refuses a private key inside a directory others can │  
+  │   [w] Write the report to a file                                   │  │                      read, so every ssh command fails until it is fixed          │  
+  │   [t] Show every finding                                           │  │  What to do         The doctor can set it to 0700 for you, or run `chmod 700    │  
+  │ ────────────────────────────────────────────────────────────────── │  │                      ~/.ssh`                                                     │  
+  │ ← Back                                                             │  │                                                                                  │  
+  ╰────────────────────────────────────────────────────────────────────╯  │                                                                                  │  
+                                                                          │ 5 checks: 1 error, 1 warning, 1 unknown, 1 not applicable, 1 ok. Kept at         │  
+                                                                          │ ~/.local/state/dotfiles/doctor-report.txt                                        │  
+                                                                          ╰──────────────────────────────────────────────────────────────────────────────────╯  
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 

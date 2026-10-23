@@ -2,11 +2,11 @@
    Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   WSL performance                                                               
-  WSL Ubuntu-24.04, version 2; kernel 5.15.153.1-microsoft-standard-WSL2.       
-  This instance has 8 processors, 8.0 GiB of memory with 37% in use, swap 0 B   
-  of 2.0 GiB in use. WSL gives the distribution the limit it was configured     
-  with, not the Windows host's total.                                           
-  … and 30 more                                                                 
+  Runtime: WSL 2.                                                               
+  Distro: Ubuntu-24.04.                                                         
+  Kernel: 5.15.153.1-microsoft-standard-WSL2.                                   
+  Processors: 8.                                                                
+  … and 34 more                                                                 
                                                                                 
   ▸ Notice · DNS goes through the Windows host                                  
     Info · The working directory is on the distribution's disk                  

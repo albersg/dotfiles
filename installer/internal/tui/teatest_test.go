@@ -1569,6 +1569,22 @@ func TestWSLAdvisorGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, "Utilities"))
 }
 
+// TestWSLAdvisorWideGolden pins the advisor's report in the reference grammar: the
+// instance's rows, the storage, the resolver and the Windows-side configuration as
+// short labelled facts under their own dividers, and the finding under the cursor
+// with its severity, its origin, its scope, its evidence and what to do -- one row
+// each, where the same readings used to be sentences in a paragraph. The reading is
+// the advisor's own fixture, so the frame is this repository's screen and not the
+// machine that rendered it.
+func TestWSLAdvisorWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "WSL performance"))
+}
+
 // TestWSLResourcesGolden pins the WSL resource screen on a WSL host: the
 // recommendation from the host's own capacity, the values the file holds, the
 // draft, the write row and the way back. The host and the file are forced, so the
@@ -1648,12 +1664,29 @@ func TestDiskCleanerGolden(t *testing.T) {
 }
 
 // TestDiskCleanerWideGolden pins the disk cleaner in the reference grammar: the
-// findings' card at the left with the way back under its rule, and the prose the
-// screen is made of in the card beside it. The framing is the floor's own
+// findings in a card menu at the left -- one divider per tool or project, one
+// two-line row per finding with its state in the gutter and its size beside what
+// removing it would cost -- and the facts of the finding under the cursor in the
+// card beside it, cut into the areas the screen has. The presses are the footer's:
+// no row of the list carries a command. The framing is the floor's own
 // (TestDiskCleanerGolden); what changes is the grammar the wide frame can hold.
 func TestDiskCleanerWideGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := diskCleanerFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Development caches"))
+}
+
+// TestDiskCleanerPreviewWideGolden pins the dry run, which is the state the screen
+// exists for: the plan's findings in the same card menu, the count of what would run
+// and what would not, and the exact command or path the confirmation is about, in
+// the card of the finding under the cursor.
+func TestDiskCleanerPreviewWideGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := diskCleanerFrameCase(t)
+	m = m.startDiskCleanPreview()
 	m.Width, m.Height = 160, 50
 	m.Animating = false
 

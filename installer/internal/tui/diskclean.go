@@ -106,10 +106,16 @@ const (
 	diskCleanCleanMark      = "[" + diskCleanCleanKey + "] "
 	diskCleanAddRootMark    = "[" + diskCleanAddRootKey + "] "
 	diskCleanForgetRootMark = "[" + diskCleanForgetRootKey + "] "
-	// The two states a switch row shows: a finding is marked or it is not, and Space
-	// is the key that turns one into the other.
+	// The two states a finding's row shows, drawn as one cell each so the state can
+	// sit in the gutter and the title keeps its column: a marked finding is one a
+	// confirmation would clean, and Space is the key that turns one into the other.
 	diskCleanSwitchOffMark = "[ ]"
 	diskCleanSwitchOnMark  = "[x]"
+	// diskCleanMarkOff and diskCleanMarkOn are the same two states in the gutter: one
+	// cell, so a marked row and an unmarked one start their titles at the same column
+	// and the cursor's own marker can take the glyph's place without moving anything.
+	diskCleanMarkOff = "▢"
+	diskCleanMarkOn  = "▣"
 	// diskCleanBackMark is the way back: Escape's key, drawn the way the section
 	// above draws it.
 	diskCleanBackMark = "← "
@@ -144,8 +150,8 @@ var diskCleanRowMarks = map[string]string{
 	diskCleanCleanMark:      diskCleanCleanKey,
 	diskCleanAddRootMark:    diskCleanAddRootKey,
 	diskCleanForgetRootMark: diskCleanForgetRootKey,
-	diskCleanSwitchOffMark:  " ",
-	diskCleanSwitchOnMark:   " ",
+	diskCleanMarkOff:        " ",
+	diskCleanMarkOn:         " ",
 	diskCleanBackMark:       "esc",
 }
 
@@ -353,22 +359,27 @@ func (m Model) diskCleanCleanCmd(ctx context.Context) tea.Cmd {
 	}
 }
 
-// diskCleanRows builds the screen's rows from its state: one row per finding
-// with its selection, the rows that act on the selection, the project scope,
-// and the way back. The rows and the prose are both drawn from the same state,
-// so they cannot disagree about what is selected or what a row would do.
+// diskCleanRows builds the screen's list from its state: one heading per tool or
+// project, one row per finding under it, with the selection on the row. The actions
+// are not rows any more: a heading names a tool and a row is a finding, and a press
+// that is about neither -- scanning, previewing, adding or forgetting a project
+// directory -- is named in the footer (diskCleanerActions), where the frame draws
+// every other screen's presses. The rows and the details card are both drawn from
+// the same state, so they cannot disagree about what is selected.
 func (m Model) diskCleanRows() []diskCleanRow {
 	st := m.DiskClean
 
+	// A run in flight and a finished run have nothing to walk: what the screen says
+	// about them is the card's, and the one press they offer is the footer's.
 	switch st.Phase {
-	case diskCleanRunning:
-		return []diskCleanRow{{label: diskCleanCancelRunRow, action: diskCleanActionCancelRun}}
+	case diskCleanRunning, diskCleanResults:
+		return nil
 	case diskCleanPreview:
 		// The preview lists the items it is about, in the plan's own order, so the
-		// cursor can walk them and read each one's exact action; the confirmation is
-		// the only row that runs anything. The rows carry the item's index into the
-		// last scan, which is how the card knows what the cursor is looking at.
-		rows := make([]diskCleanRow, 0, len(st.Plan.Items)+5)
+		// cursor can walk them and read each one's exact action. The rows carry the
+		// item's index into the last scan, which is how the card knows what the cursor
+		// is looking at.
+		rows := make([]diskCleanRow, 0, len(st.Plan.Items)+2)
 		plannedItems := make([]diskclean.Item, 0, len(st.Plan.Items))
 		for _, planned := range st.Plan.Items {
 			plannedItems = append(plannedItems, planned.Item)
@@ -385,76 +396,90 @@ func (m Model) diskCleanRows() []diskCleanRow {
 				if index < 0 {
 					continue
 				}
+				// The row is the finding, as it is in the list: the same mark, the same
+				// name and the same size, because the preview is the same findings with a
+				// plan over them. What the confirmation would do to the one under the
+				// cursor is the details card's, one row of it.
 				rows = append(rows, diskCleanRow{
-					label:  diskCleanPreviewItemRow(planned),
+					label:  m.diskCleanItemRow(st.Items[index]),
 					action: diskCleanActionPreviewItem,
 					item:   index,
 				})
 			}
 		}
-		rows = append(rows, diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1})
-		if len(st.Plan.Items) > 0 {
-			rows = append(rows, diskCleanRow{
-				label:  diskCleanConfirmRowPrefix + diskCleanCount(len(selectedRunnable(st.Plan.Items))) + " selected",
-				action: diskCleanActionConfirm,
-				item:   -1,
-			})
-		}
-		return append(rows, diskCleanRow{label: diskCleanCancelRow, action: diskCleanActionCancelPreview, item: -1})
-	case diskCleanResults:
-		return []diskCleanRow{
-			{label: diskCleanRescanRow, action: diskCleanActionScan},
-			{label: diskCleanBackRow, action: diskCleanActionBack},
-		}
+		return rows
 	}
 
-	rows := []diskCleanRow{}
-	scanLabel := diskCleanScanRow
-	if st.Scanned {
-		scanLabel = diskCleanRescanRow
-	}
-	rows = append(rows, diskCleanRow{label: scanLabel, action: diskCleanActionScan, item: -1})
-
-	if len(st.Items) > 0 {
-		rows = append(rows, diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1})
-		// The findings are grouped by the tool that owns them: the request asks for
-		// the space to be shown per tool and per project, and a heading per tool is
-		// what makes that grouping visible instead of implied by the titles.
-		for _, group := range diskCleanGrouped(st.Items) {
-			rows = append(rows, diskCleanRow{
-				label:  diskCleanGroupRow(group.Label, len(group.Indexes)),
-				action: diskCleanActionGroup,
-				item:   -1,
-			})
-			for _, index := range group.Indexes {
-				rows = append(rows, diskCleanRow{label: m.diskCleanItemRow(st.Items[index]), action: diskCleanActionItem, item: index})
-			}
-		}
+	if len(st.Items) == 0 {
+		return nil
 	}
 
-	selected := st.Selection.Count(st.Items)
-
-	// The actions live in one block under the findings, and the block is pinned: it
-	// is where an action appears or disappears as the selection changes, and a
-	// pinned block is what keeps a selection from moving the entries above it. The
-	// preview row is part of the block for that reason -- it used to sit above the
-	// separator, so marking the first finding grew the scrolling list by two rows.
-	rows = append(rows, diskCleanRow{label: m.menuSeparator(), action: diskCleanActionNone, item: -1})
-	if selected > 0 {
-		rows = append(rows, diskCleanRow{label: diskCleanPreviewRowPrefix + diskCleanCount(selected) + " selected", action: diskCleanActionPreview, item: -1})
-	}
-	if st.Cwd != "" && !diskCleanHasRoot(st.ProjectRoots, st.Cwd) {
-		rows = append(rows, diskCleanRow{label: diskCleanAddRootPrefix + st.Cwd, action: diskCleanActionAddRoot, item: -1})
-	}
-	if len(st.ProjectRoots) > 0 {
+	// The findings are grouped by the tool that owns them: the request asks for
+	// the space to be shown per tool and per project, and a heading per tool is
+	// what makes that grouping visible instead of implied by the titles.
+	var rows []diskCleanRow
+	for _, group := range diskCleanGrouped(st.Items) {
 		rows = append(rows, diskCleanRow{
-			label:  diskCleanForgetRootPrefix + st.ProjectRoots[len(st.ProjectRoots)-1],
-			action: diskCleanActionForgetRoot,
+			label:  diskCleanGroupRow(group.Label, len(group.Indexes)),
+			action: diskCleanActionGroup,
 			item:   -1,
 		})
+		for _, index := range group.Indexes {
+			rows = append(rows, diskCleanRow{label: m.diskCleanItemRow(st.Items[index]), action: diskCleanActionItem, item: index})
+		}
 	}
-	rows = append(rows, diskCleanRow{label: diskCleanBackRow, action: diskCleanActionBack, item: -1})
 	return rows
+}
+
+// diskCleanAction is one press the screen offers, named by the footer rather than by
+// a row of its own.
+type diskCleanActionSpec struct {
+	Action diskCleanAction
+	Hint   installerHint
+}
+
+// diskCleanerActions is the presses this phase offers, in the order the footer names
+// them. It is the one list the handler and the footer read, so a key cannot be
+// advertised on a screen state that does not accept it, and a press cannot exist
+// without the footer naming it.
+func (m Model) diskCleanerActions() []diskCleanActionSpec {
+	st := m.DiskClean
+	switch {
+	case st.Scanning:
+		return []diskCleanActionSpec{{diskCleanActionCancelRun, diskCleanStopScanHint}}
+	case st.Phase == diskCleanRunning:
+		return []diskCleanActionSpec{{diskCleanActionCancelRun, diskCleanStopRunHint}}
+	case st.Phase == diskCleanPreview:
+		actions := []diskCleanActionSpec{{diskCleanActionCancelPreview, hintBack}}
+		if len(st.Plan.Items) > 0 {
+			actions = append([]diskCleanActionSpec{{diskCleanActionConfirm, diskCleanCleanHint}}, actions...)
+		}
+		return actions
+	case st.Phase == diskCleanResults:
+		return []diskCleanActionSpec{{diskCleanActionScan, diskCleanScanHint}, {diskCleanActionBack, hintBack}}
+	}
+
+	actions := []diskCleanActionSpec{{diskCleanActionScan, diskCleanScanHint}}
+	if st.Selection.Count(st.Items) > 0 {
+		actions = append(actions, diskCleanActionSpec{diskCleanActionPreview, diskCleanPreviewHint})
+	}
+	if st.Cwd != "" && !diskCleanHasRoot(st.ProjectRoots, st.Cwd) {
+		actions = append(actions, diskCleanActionSpec{diskCleanActionAddRoot, diskCleanAddRootHint})
+	}
+	if len(st.ProjectRoots) > 0 {
+		actions = append(actions, diskCleanActionSpec{diskCleanActionForgetRoot, diskCleanForgetRootHint})
+	}
+	return append(actions, diskCleanActionSpec{diskCleanActionBack, hintBack})
+}
+
+// diskCleanerOffers reports whether this phase offers one press.
+func (m Model) diskCleanerOffers(action diskCleanAction) bool {
+	for _, offered := range m.diskCleanerActions() {
+		if offered.Action == action {
+			return true
+		}
+	}
+	return false
 }
 
 // diskCleanItemRow is one finding as a row: whether it is selected, what it is,
@@ -463,27 +488,51 @@ func (m Model) diskCleanRows() []diskCleanRow {
 // printed a number without saying where it came from would be the first place
 // this utility could mislead.
 func (m Model) diskCleanItemRow(item diskclean.Item) string {
-	box := diskCleanSwitchOffMark
-	if m.DiskClean.Selection.Has(item.ID) {
-		box = diskCleanSwitchOnMark
+	return diskCleanItemMark(m.DiskClean.Selection.Has(item.ID)) + " " + item.Title + " — " +
+		diskCleanItemSize(item) + " — " + item.Risk.Label()
+}
+
+// diskCleanItemMark is the state a finding's row shows in its gutter: whether this
+// one is marked for the run that the preview would confirm. The marks are one cell,
+// so the title starts at the same column on a marked row and an unmarked one, and
+// the cursor's own marker can take their place without moving anything.
+func diskCleanItemMark(selected bool) string {
+	if selected {
+		return diskCleanMarkOn
 	}
-	size := "nothing measured"
+	return diskCleanMarkOff
+}
+
+// diskCleanItemSize is the number a finding's row carries: what a removal would free,
+// with its source when the tool reported it rather than the walk.
+func diskCleanItemSize(item diskclean.Item) string {
 	switch {
 	case item.Size.Missing:
-		size = "not present"
+		return "not present"
 	case item.Size.Err != "":
-		size = "not measured"
+		return "not measured"
 	case item.Reclaimable() > 0:
-		size = humanBytes(uint64(item.Reclaimable()))
+		size := humanBytes(uint64(item.Reclaimable()))
 		if item.Size.Source == diskclean.SourceTool {
 			size += " (tool-reported)"
 		}
+		return size
 	}
-	row := fmt.Sprintf("%s %s — %s — %s", box, item.Title, size, item.Risk.Label())
-	if len(item.Overlaps) > 0 {
-		row += " — shares bytes with an item above"
-	}
-	return row
+	return "nothing measured"
+}
+
+// diskCleanItemSubtitle is the muted second line of a finding's row: what it holds
+// and what removing it would cost. The row's title carries the name, so the two
+// lines together say everything the one-line row used to, without the row reading
+// as a sentence.
+// diskCleanItemSubtitle is the muted second line of a finding's row: what it holds
+// and what removing it would cost. The row's title carries the name, so the two
+// lines together say everything the one-line row used to, without the row reading as
+// a sentence. What the number is worth beyond that -- a walk cut short, bytes shared
+// with another finding -- is the details card's, because a subtitle is one line and a
+// clause that does not fit is a clause that gets cut.
+func diskCleanItemSubtitle(item diskclean.Item) string {
+	return diskCleanItemSize(item) + " · " + item.Risk.Label()
 }
 
 // diskCleanRowLabels is what the menu renderer draws.
@@ -593,26 +642,6 @@ func diskCleanFindingCount(n int) string {
 	return fmt.Sprintf("%d findings", n)
 }
 
-// diskCleanPreviewItemRow is one item as a preview row: what it is, what it is
-// expected to free, and -- in the row itself, so the list reads as the plan --
-// the exact thing it would do.
-func diskCleanPreviewItemRow(planned diskclean.PlannedItem) string {
-	label := planned.Item.Title + " — " + humanBytes(uint64(planned.Item.Reclaimable()))
-	switch {
-	case !planned.Runs():
-		return label + " — nothing would run"
-	case planned.Item.Mechanism.Kind == diskclean.MechanismTool:
-		return label + " — would run " + planned.Item.Mechanism.Command()
-	case planned.Item.Mechanism.Kind == diskclean.MechanismRemove:
-		if len(planned.Item.Paths) == 1 {
-			return label + " — would remove " + planned.Item.Paths[0]
-		}
-		return label + " — would remove " + diskCleanPathCount(len(planned.Item.Paths))
-	default:
-		return label + " — reported only"
-	}
-}
-
 // diskCleanItemIndex is where a finding sits in the last scan, so a preview row
 // and the card under the cursor can name the same one.
 func diskCleanItemIndex(items []diskclean.Item, id string) int {
@@ -692,7 +721,10 @@ func (m Model) handleDiskCleanerKeys(key string) (tea.Model, tea.Cmd) {
 			return
 		}
 		next := m.Cursor + delta
-		for next >= 0 && next < len(rows) && rows[next].action == diskCleanActionNone {
+		// The cursor rests on findings only: a heading is a divider between them, and
+		// an arrow that could stop on one would leave the details card describing the
+		// last finding it happened to hold.
+		for next >= 0 && next < len(rows) && rows[next].item < 0 {
 			next += delta
 		}
 		if next < 0 || next >= len(rows) {
@@ -716,22 +748,36 @@ func (m Model) handleDiskCleanerKeys(key string) (tea.Model, tea.Cmd) {
 		m.DiskClean.Selection = diskclean.Selection{}
 		m.DiskClean.Notice = "Nothing is selected."
 	case diskCleanScanKey:
-		return m.diskCleanerRunRow(rows, diskCleanActionScan)
+		return m.diskCleanerRunAction(diskCleanActionScan)
 	case diskCleanPreviewKey:
-		return m.diskCleanerRunRow(rows, diskCleanActionPreview)
+		return m.diskCleanerRunAction(diskCleanActionPreview)
 	case diskCleanCleanKey:
-		return m.diskCleanerRunRow(rows, diskCleanActionConfirm)
+		return m.diskCleanerRunAction(diskCleanActionConfirm)
 	case diskCleanAddRootKey:
-		return m.diskCleanerRunRow(rows, diskCleanActionAddRoot)
+		return m.diskCleanerRunAction(diskCleanActionAddRoot)
 	case diskCleanForgetRootKey:
-		return m.diskCleanerRunRow(rows, diskCleanActionForgetRoot)
+		return m.diskCleanerRunAction(diskCleanActionForgetRoot)
 	}
 	return m, nil
+}
+
+// diskCleanerRunAction runs one of the presses the footer names, when this phase
+// offers it. The press is guarded by the same list the footer is drawn from, so a
+// key cannot act on a state that does not advertise it.
+func (m Model) diskCleanerRunAction(action diskCleanAction) (tea.Model, tea.Cmd) {
+	if !m.diskCleanerOffers(action) {
+		return m, nil
+	}
+	return m.diskCleanerChoose(diskCleanRow{action: action, item: -1})
 }
 
 // diskCleanerRunRow runs the row that carries an action, when the screen is
 // offering it. A key that ran a row nobody can see would be a press with no row
 // behind it, so the row has to be on screen for its key to do anything.
+//
+// The rows are findings and headings now, so this is only reached by the tests that
+// press a finding; the presses that are not about a finding go through
+// diskCleanerRunAction, which reads the same list the footer is drawn from.
 func (m Model) diskCleanerRunRow(rows []diskCleanRow, action diskCleanAction) (tea.Model, tea.Cmd) {
 	for _, row := range rows {
 		if row.action == action {
@@ -741,10 +787,9 @@ func (m Model) diskCleanerRunRow(rows []diskCleanRow, action diskCleanAction) (t
 	return m, nil
 }
 
-// diskCleanerSpace is a switch's key: on an item row it marks the finding or
-// takes the mark back, and on any other row it does nothing. Space that also ran
-// the row's command would be the one key meaning two things, which is what the
-// grammar fixes.
+// diskCleanerSpace is a switch's key: on a finding's row it marks the finding or takes
+// the mark back, and on any other row it does nothing. Space that also ran a command
+// would be the one key meaning two things, which is what the grammar fixes.
 func (m Model) diskCleanerSpace(rows []diskCleanRow) (tea.Model, tea.Cmd) {
 	if len(rows) == 0 || m.Cursor < 0 || m.Cursor >= len(rows) {
 		return m, nil

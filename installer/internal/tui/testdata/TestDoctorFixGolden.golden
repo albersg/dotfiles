@@ -2,21 +2,21 @@
    Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Confirm the fix                                                               
-  ~/.ssh has mode 0755 offers one deterministic change, and this is exactly     
-  it. Nothing else on the machine is touched.                                   
-  before: /home/testuser/.ssh has mode 0755                                     
-  after:  /home/testuser/.ssh has mode 0700                                     
+  Subject: ~/.ssh has mode 0755.                                                
+  Scope: one deterministic change; nothing else on the machine is touched.      
+  Effect: before: /home/testuser/.ssh has mode 0755.                            
+  Effect: after:  /home/testuser/.ssh has mode 0700.                            
   Risk: A mode that is too open is a way into every tool that reads this path,  
   and OpenSSH refuses to use a key inside a directory others can read.          
-  Permission needed: Ownership of /home/testuser/.ssh; no administrator rights  
-  are needed when this user owns it.                                            
+  Permission: Ownership of /home/testuser/.ssh; no administrator rights are     
+  needed when this user owns it.                                                
   Backup: The mode it has now (0755) is written into the fix record with the    
   command that puts it back: `chmod 0755 /home/testuser/.ssh`.                  
-  Press a to apply it, or Escape to leave without changing anything.            
+  Apply: [a] applies it.                                                        
+  Leave: Escape leaves without changing anything.                               
                                                                                 
   ▸ [a] Set the mode to 0700                                                    
     ← Back                                                                      
-                                                                                
                                                                                 
                                                                                 
                                                                                 

@@ -282,32 +282,61 @@ func (m Model) wslAdvisorDescription() []string {
 	return factProse(m.wslAdvisorFacts())
 }
 
-// wslAdvisorFacts is that answer as facts: the environment the report was taken in, the read-only
-// promise, what no reading could establish, and the finding under the cursor as the facts it is.
+// wslAdvisorFacts is that answer as one list of facts, which is what the compact body's prose is
+// derived from. It is a flatten of wslAdvisorAreas, so the floor and the card read one list and the
+// card's dividers never reach the words the floor prints.
 func (m Model) wslAdvisorFacts() []iconFact {
+	return factAreaFacts(m.wslAdvisorAreas())
+}
+
+// wslAdvisorAreas is the report's detail as the areas its card divides: what this instance is, the
+// storage the working directory really lives on, its resolver, the Windows-side configuration, what
+// no reading could establish, and the finding under the cursor.
+//
+// Every row inside an area is one short fact -- an icon, the label that names it and the model's own
+// value -- because the previous body was the same readings written as sentences: "This instance has
+// 8 processors, 8.0 GiB of memory with 37% in use, swap 0 B of 2.0 GiB in use. WSL gives the
+// distribution the limit it was configured with..." is four facts and one explanation in a
+// paragraph, and a reader cannot find the number they came for in it. The explanation is not
+// deleted, it is demoted: what the limit means is the Windows config area's own row (the value the
+// file sets), and the derivation lives where it is derived.
+func (m Model) wslAdvisorAreas() []factArea {
 	state := m.WSLAdvisor
 	if !m.wslAdvisorOffered() {
-		return []iconFact{{Label: "WSL performance", Value: m.wslAdvisorUnavailableReason()}}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "WSL performance",
+			Value: m.wslAdvisorUnavailableReason()}}}}
 	}
 	if !state.Resolved {
-		return []iconFact{{Label: "Reading", Value: "Reading this instance's mounts, limits, project directories and resolver…"}}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconRuntime, Label: "Reading",
+			Value: "This instance's mounts, limits, project directories and resolver…"}}}}
 	}
 
-	facts := wslEnvironmentFacts(state.Facts)
-	facts = append(facts, iconFact{Label: "Read-only",
-		Value: "Nothing on this screen or the ones behind it changes a configuration file, a " +
-			"mount, a virtual disk or a network setting. Each finding says where its change belongs, " +
-			"and the two rows that act are the benchmark, which measures, and the copy, which writes " +
-			"only where you confirm it and never deletes the source."})
+	areas := wslEnvironmentAreas(state.Facts)
+
+	// The read-only promise is two facts, not a paragraph: what this screen writes
+	// (nothing) and what the two rows that act really do. The "each finding says
+	// where its change belongs" half of the old sentence is the finding area's own
+	// Scope row, which says exactly that about the finding the reader is looking at.
+	areas = append(areas, factArea{Name: "This report", Facts: []iconFact{
+		{Icon: wslFactIconReadOnly, Label: "Read-only", Value: "nothing here changes a file, a mount, a disk or a network setting"},
+		{Icon: wslFactIconWrites, Label: "Writes", Value: "only the assisted copy, and only where you confirm it; it never deletes the source"},
+	}})
 
 	if len(state.Facts.Limits) > 0 {
-		facts = append(facts, iconFact{Label: "Not read", Value: factClause(strings.Join(state.Facts.Limits, " "))})
+		// One row per reading that did not happen: each is the reading's own
+		// sentence, and joining them into one value would put several unrelated
+		// failures in a single row a reader has to unpick.
+		limits := make([]iconFact, 0, len(state.Facts.Limits))
+		for _, limit := range state.Facts.Limits {
+			limits = append(limits, iconFact{Icon: wslFactIconLimit, Label: "Not read", Value: factClause(limit)})
+		}
+		areas = append(areas, factArea{Name: "Not read", Facts: limits})
 	}
 
 	if finding, ok := m.selectedFinding(); ok {
-		facts = append(facts, wslFindingFacts(finding)...)
+		areas = append(areas, factArea{Name: "Finding", Facts: wslFindingFacts(finding)})
 	}
-	return facts
+	return areas
 }
 
 // wslEnvironmentParagraphs states what this instance is as the compact body's paragraphs. It is the
@@ -316,95 +345,183 @@ func wslEnvironmentParagraphs(facts wslAdvisorFacts) []string {
 	return factProse(wslEnvironmentFacts(facts))
 }
 
-// wslEnvironmentFacts states what this instance is, from the readings and nothing else. Every fact is
-// omitted rather than filled in when its reading did not happen.
+// wslEnvironmentFacts is the environment as one list, which is what its prose is derived from.
 func wslEnvironmentFacts(facts wslAdvisorFacts) []iconFact {
-	var out []iconFact
+	return factAreaFacts(wslEnvironmentAreas(facts))
+}
 
-	version := "version not reported by the kernel"
-	if facts.Runtime.Version > 0 {
-		version = fmt.Sprintf("version %d", facts.Runtime.Version)
-	}
-	distro := facts.Runtime.Distro
-	if distro == "" {
-		distro = "name not in the environment"
-	}
-	release := wslSignalDetail(facts.Runtime, "kernel-release")
-	out = append(out, iconFact{Label: "Runtime", Value: fmt.Sprintf("WSL %s, %s; kernel %s.", distro, version, release)})
+// The icons the report's rows wear. They are decoration in the gutter -- the label
+// beside them is the fact -- and each is one cell, so a terminal without the font
+// still draws the row.
+const (
+	wslFactIconRuntime  = "\uf17a" // nf-fa-windows: the runtime this report is about
+	wslFactIconDistro   = "\uf109" // nf-fa-linux: the distribution's own name
+	wslFactIconKernel   = "\uf085" // nf-fa-cogs: the kernel that was read
+	wslFactIconCPU      = "\uf2db" // nf-fa-microchip: the processors
+	wslFactIconMemory   = "\uf0a0" // nf-fa-hdd-o: memory and the disk behind a path
+	wslFactIconDisk     = "\uf0a0"
+	wslFactIconFolder   = "\uf07b" // nf-fa-folder: the working directory's filesystem
+	wslFactIconDrives   = "\uf1c0" // nf-fa-database: the Windows drives
+	wslFactIconMounts   = "\uf0c1" // nf-fa-link: a mounted filesystem
+	wslFactIconResolver = "\uf0ac" // nf-fa-globe: name resolution
+	wslFactIconConfig   = "\uf013" // nf-fa-cog: the Windows-side configuration
+	wslFactIconShell    = "\uf120" // nf-fa-terminal: the shell's startup
+	wslFactIconReadOnly = "\uf023" // nf-fa-lock: the read-only promise
+	wslFactIconWrites   = "\uf044" // nf-fa-pencil: what the screen may write
+	wslFactIconLimit    = "\uf071" // nf-fa-warning: a reading that did not happen
+	wslFactIconFinding  = "\uf0eb" // nf-fa-lightbulb: the finding under the cursor
+	wslFactIconEvidence = "\uf0c3" // nf-fa-flask: what was read
+	wslFactIconWhy      = "\uf128" // nf-fa-question: what it means
+	wslFactIconBenefit  = "\uf0d6" // nf-fa-money: what acting is worth
+	wslFactIconAction   = "\uf0ad" // nf-fa-wrench: what to do
+)
 
-	var instance []string
+// wslEnvironmentAreas states what this instance is, from the readings and nothing else: the runtime,
+// the instance's capacity, the storage the working directory lives on, the resolver and the
+// Windows-side configuration. Every fact is omitted rather than filled in when its reading did not
+// happen, and the readings that did not happen are the "Not read" area of the report.
+func wslEnvironmentAreas(facts wslAdvisorFacts) []factArea {
+	var areas []factArea
+
+	runtime := []iconFact{
+		{Icon: wslFactIconRuntime, Label: "Runtime", Value: wslRuntimeValue(facts.Runtime)},
+		{Icon: wslFactIconDistro, Label: "Distro", Value: wslDistroValue(facts.Runtime)},
+		{Icon: wslFactIconKernel, Label: "Kernel", Value: wslSignalDetail(facts.Runtime, "kernel-release")},
+	}
+
+	// The capacity is the limit WSL gives this distribution, not the Windows host's total: the number
+	// is what the instance's own file reported, and the separation of the two is the report's point.
+	capacity := make([]iconFact, 0, 3)
 	if facts.CPUs > 0 {
-		instance = append(instance, fmt.Sprintf("%d processors", facts.CPUs))
+		capacity = append(capacity, iconFact{Icon: wslFactIconCPU, Label: "Processors",
+			Value: fmt.Sprintf("%d", facts.CPUs)})
 	}
 	if facts.Memory.Read && facts.Memory.HaveTotal {
-		line := humanBytes(facts.Memory.TotalBytes) + " of memory"
+		value := humanBytes(facts.Memory.TotalBytes) + " total"
 		if facts.Memory.HaveUsed {
-			line += fmt.Sprintf(" with %d%% in use", wslPercent(facts.Memory.UsedBytes, facts.Memory.TotalBytes))
+			value += fmt.Sprintf(", %d%% in use", wslPercent(facts.Memory.UsedBytes, facts.Memory.TotalBytes))
 		}
-		instance = append(instance, line)
+		capacity = append(capacity, iconFact{Icon: wslFactIconMemory, Label: "Memory", Value: value})
 	}
-	if facts.Memory.Read && facts.Memory.HaveSwap && facts.Memory.SwapTotalBytes > 0 {
-		instance = append(instance, fmt.Sprintf("swap %s of %s in use",
-			humanBytes(facts.Memory.SwapTotalBytes-facts.Memory.SwapFreeBytes),
-			humanBytes(facts.Memory.SwapTotalBytes)))
-	} else if facts.Memory.Read {
-		instance = append(instance, "no swap")
+	if facts.Memory.Read {
+		value := "none configured"
+		if facts.Memory.HaveSwap && facts.Memory.SwapTotalBytes > 0 {
+			value = fmt.Sprintf("%s total, %s in use",
+				humanBytes(facts.Memory.SwapTotalBytes),
+				humanBytes(facts.Memory.SwapTotalBytes-facts.Memory.SwapFreeBytes))
+		}
+		capacity = append(capacity, iconFact{Icon: wslFactIconMemory, Label: "Swap", Value: value})
 	}
-	if len(instance) > 0 {
-		out = append(out, iconFact{Label: "Instance", Value: "This instance has " + strings.Join(instance, ", ") +
-			". WSL gives the distribution the limit it was configured with, not the Windows host's total."})
+	if len(runtime)+len(capacity) > 0 {
+		areas = append(areas, factArea{Name: "Instance", Facts: append(runtime, capacity...)})
 	}
 
+	var storage []iconFact
 	if name := facts.NativeStorageName(); name != "" {
-		line := "The distribution's own storage is " + name
-		if facts.RootDisk.Known {
-			line += fmt.Sprintf(", holding %s free of %s",
+		value := name
+		switch {
+		case facts.RootDisk.Known:
+			value += fmt.Sprintf(", %s free of %s",
 				humanBytes(facts.RootDisk.FreeBytes), humanBytes(facts.RootDisk.TotalBytes))
-		} else if facts.RootDisk.Err != "" {
-			line += "; its space could not be read (" + facts.RootDisk.Err + ")"
+		case facts.RootDisk.Err != "":
+			value += ", space not read (" + facts.RootDisk.Err + ")"
 		}
-		out = append(out, iconFact{Label: "Storage", Value: line + "."})
+		storage = append(storage, iconFact{Icon: wslFactIconDisk, Label: "Distribution", Value: value})
 	}
 	if facts.ProjectDisk.Known && facts.ProjectDisk.Path != facts.RootDisk.Path {
-		out = append(out, iconFact{Label: "Project disk", Value: fmt.Sprintf("The working directory's filesystem holds %s free of %s.",
-			humanBytes(facts.ProjectDisk.FreeBytes), humanBytes(facts.ProjectDisk.TotalBytes))})
+		storage = append(storage, iconFact{Icon: wslFactIconFolder, Label: "Project disk",
+			Value: fmt.Sprintf("%s free of %s",
+				humanBytes(facts.ProjectDisk.FreeBytes), humanBytes(facts.ProjectDisk.TotalBytes))})
 	}
-
-	out = append(out, iconFact{Label: "Drives", Value: "The Windows drives are mounted under " +
-		facts.Conf.Describe(facts.Conf.AutomountRoot, "/mnt") + "."})
+	storage = append(storage, iconFact{Icon: wslFactIconDrives, Label: "Drives",
+		Value: facts.Conf.Describe(facts.Conf.AutomountRoot, "/mnt")})
 	if drives := wslHostMounts(facts.Table); len(drives) > 0 {
-		out = append(out, iconFact{Label: "Mounts", Value: "Windows filesystems mounted in: " + strings.Join(drives, ", ") +
-			". They are recognised by filesystem type, never by a path."})
+		storage = append(storage, iconFact{Icon: wslFactIconMounts, Label: "Mounts",
+			Value: strings.Join(drives, ", ")})
+	}
+	if len(storage) > 0 {
+		areas = append(areas, factArea{Name: "Storage", Facts: storage})
 	}
 
-	if facts.Resolv.Read {
-		if len(facts.Resolv.Nameservers) > 0 {
-			line := facts.Resolv.Path + " lists " + strings.Join(facts.Resolv.Nameservers, ", ")
-			if facts.Resolv.LinkTarget != "" {
-				line += ", reached through " + facts.Resolv.LinkTarget
-			}
-			out = append(out, iconFact{Label: "Resolver", Value: line + "."})
-		} else {
-			out = append(out, iconFact{Label: "Resolver", Value: facts.Resolv.Path + " lists no nameserver."})
-		}
-	} else if facts.Resolv.Err != "" {
-		out = append(out, iconFact{Label: "Resolver", Value: facts.Resolv.Path + " could not be read: " + facts.Resolv.Err + "."})
+	if resolv := wslResolverFacts(facts); len(resolv) > 0 {
+		areas = append(areas, factArea{Name: "Resolver", Facts: resolv})
 	}
 
-	if facts.WindowsConfig != nil {
-		out = append(out, iconFact{Label: "Windows config", Value: facts.WindowsConfigPath + " sets " +
-			wslResourcesSummary(*facts.WindowsConfig) + "."})
-	} else if facts.WindowsConfigErr != "" {
-		out = append(out, iconFact{Label: "Windows config", Value: "The Windows-side .wslconfig could not be read: " +
-			facts.WindowsConfigErr + "."})
+	if windows := wslWindowsConfigFacts(facts); len(windows) > 0 {
+		areas = append(areas, factArea{Name: "Windows", Facts: windows})
 	}
 
 	// The shell's startup has its own measurement in the same section, and this report must not
 	// duplicate it: naming where it lives is how the reader finds it.
-	out = append(out, iconFact{Label: "Shell startup", Value: "How long this shell takes to start is a separate measurement: " +
-		utilitiesShellAuditRow + " in this same section."})
+	areas = append(areas, factArea{Name: "Elsewhere", Facts: []iconFact{
+		{Icon: wslFactIconShell, Label: "Shell startup", Value: "measured by " + utilitiesShellAuditRow + " in this same section"},
+	}})
 
-	return out
+	return areas
+}
+
+// wslRuntimeValue is the version every row and sentence names the runtime by.
+func wslRuntimeValue(runtime system.WSLRuntime) string {
+	if runtime.Version > 0 {
+		return fmt.Sprintf("WSL %d", runtime.Version)
+	}
+	return "WSL, version not reported by the kernel"
+}
+
+// wslDistroValue is the distribution's own name, or that the environment did not carry it.
+func wslDistroValue(runtime system.WSLRuntime) string {
+	if runtime.Distro != "" {
+		return runtime.Distro
+	}
+	return "name not in the environment"
+}
+
+// wslResolverFacts is the resolver as rows: the file, the nameservers it lists and where the path
+// points when it is a link. A file that lists no nameserver, or could not be read, is one row saying
+// so rather than a value a reader has to interpret.
+func wslResolverFacts(facts wslAdvisorFacts) []iconFact {
+	resolv := facts.Resolv
+	switch {
+	case resolv.Read && len(resolv.Nameservers) > 0:
+		out := []iconFact{{Icon: wslFactIconResolver, Label: "Nameservers",
+			Value: strings.Join(resolv.Nameservers, ", ")}}
+		if resolv.LinkTarget != "" {
+			out = append(out, iconFact{Icon: wslFactIconMounts, Label: "Via", Value: resolv.LinkTarget})
+		}
+		return out
+	case resolv.Read:
+		return []iconFact{{Icon: wslFactIconResolver, Label: "Nameservers", Value: resolv.Path + " lists none"}}
+	case resolv.Err != "":
+		return []iconFact{{Icon: wslFactIconResolver, Label: "Resolver", Value: resolv.Path + ": " + resolv.Err}}
+	}
+	return nil
+}
+
+// wslWindowsConfigFacts is the Windows-side .wslconfig as rows: the file, then the three keys it can
+// set. A key the file does not carry is reported as not set rather than left out, because an absent
+// key is what makes WSL apply its own proportional default -- which is the fact the old sentence
+// spent four lines explaining.
+func wslWindowsConfigFacts(facts wslAdvisorFacts) []iconFact {
+	if facts.WindowsConfig == nil {
+		if facts.WindowsConfigErr != "" {
+			return []iconFact{{Icon: wslFactIconConfig, Label: "Config",
+				Value: facts.WindowsConfigPath + ": " + facts.WindowsConfigErr}}
+		}
+		return nil
+	}
+	cfg := *facts.WindowsConfig
+	limit := func(mb int, unit string) string {
+		if mb <= 0 {
+			return "not set"
+		}
+		return wslUnitLabel(mb, unit)
+	}
+	return []iconFact{
+		{Icon: wslFactIconConfig, Label: "Config", Value: facts.WindowsConfigPath},
+		{Icon: wslFactIconMemory, Label: "Memory limit", Value: limit(cfg.MemoryMB, "MB")},
+		{Icon: wslFactIconCPU, Label: "Processors", Value: limit(cfg.Processors, "")},
+		{Icon: wslFactIconMemory, Label: "Swap", Value: limit(cfg.SwapMB, "MB")},
+	}
 }
 
 // wslFindingParagraphs renders one finding as the compact body's paragraphs. It is the prose of
@@ -413,19 +530,29 @@ func wslFindingParagraphs(finding wslFinding) []string {
 	return factProse(wslFindingFacts(finding))
 }
 
-// wslFindingFacts renders one finding as facts: the heading with what it is and where it came from,
-// then the evidence, the consequence, what acting is worth and what to do. A finding with nothing to
-// do omits the last two rather than printing empty labels.
+// wslFindingFacts renders one finding as rows: what it is, the three facts that qualify it, and then
+// its evidence, its consequence, what acting is worth and what to do. A finding with nothing to do
+// omits the last two rather than printing empty labels.
+//
+// The title, the severity, the origin and the scope used to be one value -- "DNS goes through the
+// Windows host — Notice (documented behaviour; changed inside this distribution, and applied only
+// after WSL restarts it)." -- which is four facts in a sentence: the reader had to parse the
+// parentheses to learn whether the claim was measured here and whether the change waits for a
+// restart. They are four rows now, one fact each.
 func wslFindingFacts(finding wslFinding) []iconFact {
-	facts := []iconFact{{Label: "Finding", Value: fmt.Sprintf("%s — %s (%s; %s).",
-		finding.Title, finding.Severity, finding.Origin, finding.Scope)}}
-	facts = append(facts, iconFact{Label: "Evidence", Value: factClause(finding.Evidence)})
-	facts = append(facts, iconFact{Label: "Why it matters", Value: factClause(finding.Why)})
+	facts := []iconFact{
+		{Icon: wslFactIconFinding, Label: "Finding", Value: finding.Title},
+		{Icon: wslFactIconLimit, Label: "Severity", Value: finding.Severity.String()},
+		{Icon: wslFactIconEvidence, Label: "Origin", Value: finding.Origin.String()},
+		{Icon: wslFactIconAction, Label: "Scope", Value: finding.Scope.String()},
+		{Icon: wslFactIconEvidence, Label: "Evidence", Value: factClause(finding.Evidence)},
+		{Icon: wslFactIconWhy, Label: "Why it matters", Value: factClause(finding.Why)},
+	}
 	if finding.Benefit != "" {
-		facts = append(facts, iconFact{Label: "Benefit", Value: factClause(finding.Benefit)})
+		facts = append(facts, iconFact{Icon: wslFactIconBenefit, Label: "Benefit", Value: factClause(finding.Benefit)})
 	}
 	if finding.Action != "" {
-		facts = append(facts, iconFact{Label: "What to do", Value: factClause(finding.Action)})
+		facts = append(facts, iconFact{Icon: wslFactIconAction, Label: "What to do", Value: factClause(finding.Action)})
 	}
 	return facts
 }

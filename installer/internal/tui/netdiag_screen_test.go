@@ -114,9 +114,11 @@ func TestScreenNetworkDiagnosticsNamesTheStageAndTheEvidence(t *testing.T) {
 	for _, want := range []string{
 		"Network diagnostics",          // the screen's own title
 		"the transport did not answer", // the verdict, by stage
-		"6 checks: 3 ok, 0 noted, 1 failed, 1 undetermined, 1 skipped in 1.42 s",
-		"Destination: https://api.github.com/", // the safe endpoint, never the query
-		"Where it stopped: the transport",      // the fault, named
+		"6 checks: 3 ok, 0 noted, 1 failed, 1 undetermined, 1 skipped",
+		"1.42 s",                  // how long the run took, as its own row
+		"https://api.github.com/", // the safe endpoint, never the query
+		"Stopped at",              // the fault, named
+		"the transport",
 		"nothing is listening on that port",    // the cause of the failing step
 		"check the port the service publishes", // the next check
 		"nc -vz api.github.com 443",            // the manual command
@@ -140,10 +142,12 @@ func TestScreenNetworkDiagnosticsNamesTheStageAndTheEvidence(t *testing.T) {
 	detail := strings.Join(strings.Fields(ansiEscape.ReplaceAllString(m.View(), "")), " ")
 	for _, want := range []string{
 		"the transport — Connect to api.github.com:443",
-		"Status: failed.",
-		"Took: 41 ms.",
+		"Status",
+		"failed",
+		"41 ms",
 		"the connection to 140.82.121.6:443 was refused",
-		"By hand: nc -vz api.github.com 443",
+		"By hand",
+		"nc -vz api.github.com 443",
 	} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("the step's own detail does not show %q:\n%s", want, detail)
@@ -548,8 +552,17 @@ func TestNetworkScreenSaysWhatAnonymizationKeeps(t *testing.T) {
 	}
 
 	body := strings.Join(strings.Fields(strings.Join(m.networkDescription(), " ")), " ")
-	if !strings.Contains(body, "The host being diagnosed is kept") {
-		t.Errorf("the anonymized preview does not say what it keeps:\n%s", body)
+	// The promise is a row now: what the redaction replaces, and the one name it
+	// deliberately keeps.
+	for _, want := range []string{
+		"Redacted",
+		"credentials never appear",
+		"Anonymized",
+		"the host diagnosed is kept",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the anonymized preview does not say %q:\n%s", want, body)
+		}
 	}
 }
 
@@ -612,9 +625,10 @@ func TestNetworkScreenSaysItChangesNothingAndWhatItReachesFor(t *testing.T) {
 
 	body := strings.Join(strings.Fields(strings.Join(m.networkDescription(), " ")), " ")
 	for _, want := range []string{
-		"Nothing is changed",
-		"no verification is skipped",
-		"no tool is installed",
+		"Writes",
+		"no resolver, route, firewall, proxy or certificate setting",
+		"no verification skipped",
+		"no tool installed",
 		"the TCP handshake's, never a ping's",
 		"api.github.com", // the host the overview reaches for, named
 	} {

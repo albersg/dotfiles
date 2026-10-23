@@ -107,7 +107,7 @@ func TestVerifyS3ListRendersEvidence(t *testing.T) {
 	}{
 		{"cache-item", []string{"regenerable cache", "safe to rebuild", "REASON-CACHE-MARKER", "/tmp/PATH-CACHE-MARKER", "900.0 MiB", "1.0 GiB", "walked", "DETAIL-CACHE-MARKER"}},
 		{"unmeasured", []string{"downloads", "costs a re-download or a rebuild", "REASON-UNMEASURED-MARKER", "/tmp/PATH-UNMEASURED-MARKER", "could not be measured", "SIZE-ERR-MARKER"}},
-		{"truncated", []string{"build artifacts", "REASON-TRUNCATED-MARKER", "/tmp/PATH-TRUNCATED-MARKER", "lower bound"}},
+		{"truncated", []string{"build artifacts", "REASON-TRUNCATED-MARKER", "/tmp/PATH-TRUNCATED-MARKER", "Lower bound"}},
 		{"shared", []string{"REASON-SHARED-MARKER", "/tmp/PATH-SHARED-MARKER", "shared"}},
 		{"toolitem", []string{"persistent volumes", "delicate", "REASON-TOOL-MARKER", "tool-reported", "VOLOBJ-MARKER"}},
 	}

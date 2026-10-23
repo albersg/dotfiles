@@ -63,37 +63,29 @@ var (
 // the same hints as the other utilities, so a screen that removes things looks
 // like the screens that only report.
 func (m Model) renderDiskCleaner() string {
-	st := m.DiskClean
-
 	// The footer names the keys the handler accepts in the state on screen, and
-	// nothing else: Escape is the way back, and while something is running it is
-	// the key that stops it instead.
+	// nothing else. The moves come first because the list is walked with them, Space
+	// is named only where a finding's row can hold a mark, and every other press is
+	// the action list itself -- the same list the handler reads, so the footer cannot
+	// advertise a key this state does not accept or hide one it does.
 	var hints []installerHint
-	switch {
-	case st.Phase == diskCleanRunning:
-		hints = []installerHint{diskCleanStopRunHint}
-	case st.Scanning:
-		hints = []installerHint{diskCleanStopScanHint}
-	case st.Phase == diskCleanPreview:
-		// The preview is walked with the arrows and run with the confirmation's own
-		// key; Escape leaves it without running anything.
-		hints = []installerHint{hintUp, hintDown, diskCleanCleanHint, hintBack}
-	default:
-		hints = []installerHint{hintUp, hintDown}
-		if len(st.Items) > 0 {
-			hints = append(hints, diskCleanToggleHint)
+	if len(m.diskCleanRows()) > 0 {
+		hints = append(hints, hintUp, hintDown)
+	}
+	if m.DiskClean.Phase == diskCleanList && len(m.DiskClean.Items) > 0 {
+		hints = append(hints, diskCleanToggleHint)
+	}
+	for _, action := range m.diskCleanerActions() {
+		shown := false
+		for _, already := range hints {
+			if already == action.Hint {
+				shown = true
+				break
+			}
 		}
-		hints = append(hints, diskCleanScanHint)
-		if st.Selection.Count(st.Items) > 0 {
-			hints = append(hints, diskCleanPreviewHint)
+		if !shown {
+			hints = append(hints, action.Hint)
 		}
-		if st.Cwd != "" && !diskCleanHasRoot(st.ProjectRoots, st.Cwd) {
-			hints = append(hints, diskCleanAddRootHint)
-		}
-		if len(st.ProjectRoots) > 0 {
-			hints = append(hints, diskCleanForgetRootHint)
-		}
-		hints = append(hints, hintBack)
 	}
 	return m.renderThemeScreen(Model.diskCleanerDescription, m.diskCleanerNotice(), hints)
 }
@@ -115,78 +107,382 @@ func (m Model) diskCleanerNotice() string {
 }
 
 // diskCleanerDescription is what the screen says about what it found and what
-// the rows would do. It is one function rather than a paragraph per phase,
-// because the phases share the same subject: what each store holds, where that
-// number came from, and what would happen to it.
+// the rows would do. It is the prose of diskCleanerAreas, so the floor and the card
+// beside the list read one list.
 func (m Model) diskCleanerDescription() []string {
+	return factProse(factAreaFacts(m.diskCleanerAreas()))
+}
+
+// diskCleanerAreas is the screen's detail as areas: what the scan is doing, which
+// finding is under the cursor and what it holds, what was measured and what those
+// numbers are worth, what is marked, what the run did, the scope it searched, and
+// what it will not do.
+//
+// The body was one paragraph list: nine sentences of orientation, then the focused
+// finding as five more paragraphs, then the measurement's caveats, the selection,
+// the outcome, the scope and the safety account -- all in the same voice, so the
+// finding a reader was deciding about read exactly like the boilerplate under it. It
+// is rows now, each under the label that names it, and the areas a reader skips when
+// they already know them.
+func (m Model) diskCleanerAreas() []factArea {
 	st := m.DiskClean
 
 	if !st.Resolved {
-		return []string{"The development stores are still being resolved. Nothing here has been measured."}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "Resolving",
+			Value: "the development stores; nothing here has been measured"}}}}
 	}
 
-	var paragraphs []string
+	var areas []factArea
 	if st.Reason != "" {
-		paragraphs = append(paragraphs, st.Reason)
+		areas = append(areas, factArea{Name: "Why not everything", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Limit", Value: factClause(st.Reason)},
+		}})
 	}
 
-	// What has been measured, and the honest caveats about the numbers. This is a
-	// summary, so it comes after the finding being looked at: at a small terminal
-	// the cut must fall on the orientation text and never on the evidence of the
-	// store the user is deciding about.
 	switch {
 	case !st.Scanned && !st.Scanning:
-		paragraphs = append(paragraphs, "The scan measures each store without removing anything: it is "+
-			"bounded, it can be stopped with Esc, and the stores it cannot reach are reported rather than "+
-			"guessed at.")
+		areas = append(areas, factArea{Name: "The scan", Facts: []iconFact{
+			{Icon: wslFactIconReadOnly, Label: "Writes", Value: "nothing: a scan measures and removes nothing"},
+			{Icon: wslFactIconLimit, Label: "Bounded", Value: "a store it cannot reach is reported rather than guessed at"},
+			{Icon: wslFactIconBenefit, Label: "Stops", Value: "Escape"},
+		}})
 	case st.Scanning:
-		paragraphs = append(paragraphs, "Measuring the stores now. Nothing is removed by a scan, and Esc stops it.")
+		areas = append(areas, factArea{Name: "The scan", Facts: []iconFact{
+			{Icon: wslFactIconBenefit, Label: "Measuring", Value: "the stores now"},
+			{Icon: wslFactIconReadOnly, Label: "Writes", Value: "nothing: a scan removes nothing"},
+			{Icon: wslFactIconBenefit, Label: "Stops", Value: "Escape"},
+		}})
 	}
 
 	// The preview's head is what the confirmation below would mean, so it comes
-	// before the item it is about. The items of the preview are its rows, so the
-	// head counts them rather than repeating them here.
+	// before the item it is about.
 	if st.Phase == diskCleanPreview {
-		paragraphs = append(paragraphs, diskCleanPreviewHead(st.Plan))
+		plan := st.Plan
+		rows := []iconFact{{Icon: wslFactIconReadOnly, Label: "Nothing run", Value: "the preview removes nothing"}}
+		if len(plan.Items) == 0 {
+			rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Empty", Value: "nothing is selected"})
+		} else {
+			runnable := len(selectedRunnable(plan.Items))
+			rows = append(rows,
+				iconFact{Icon: wslFactIconBenefit, Label: "Would run", Value: diskCleanCount(runnable)},
+				iconFact{Icon: wslFactIconLimit, Label: "Would not", Value: diskCleanCount(len(plan.Items) - runnable)},
+			)
+		}
+		areas = append(areas, factArea{Name: "Preview", Facts: rows})
 	}
 
-	// The finding under the cursor, always: what it is, what it holds and where
-	// that number came from, why it was found, where it is or what it covers, and
-	// what removing it would cost to get back. The rows are the scan's index; this
-	// is the evidence for the one being looked at. In the preview the same card
-	// also carries the exact thing the confirmation would run, which is what the
-	// confirmation is a decision about.
+	// The finding under the cursor, always: what it is, what it holds and where that
+	// number came from, why it was found, where it is or what it covers, and what
+	// removing it would cost to get back.
 	if item, action, ok := m.diskCleanFocusedFinding(); ok {
-		paragraphs = append(paragraphs, diskCleanItemCard(item, action)...)
+		areas = append(areas, diskCleanItemArea(item, action))
 	}
 
 	if st.Scanned && !st.Scanning {
-		paragraphs = append(paragraphs, diskCleanMeasurementParagraph(st.Items)...)
+		areas = append(areas, diskCleanMeasurementArea(st.Items))
 	}
 	if len(st.Items) > 0 {
-		paragraphs = append(paragraphs, diskCleanSelectionParagraph(st))
+		areas = append(areas, diskCleanSelectionArea(st))
 	}
-
-	// The outcome once a run has finished, ahead of the standing prose: it is what
-	// the user came back to the screen for.
 	if st.Phase == diskCleanResults {
-		paragraphs = append(paragraphs, diskCleanResultParagraphs(st.CleanReport)...)
+		if result := diskCleanResultArea(st.CleanReport); len(result.Facts) > 0 {
+			areas = append(areas, result)
+		}
 	}
 
-	// The screen's own introduction, then the standing scope and safety notes, come
-	// last on purpose. They are what a first-time reader wants and what a small
-	// terminal can afford to lose; the evidence of the finding under the cursor is
-	// neither.
-	paragraphs = append(paragraphs, fmt.Sprintf("%s looks at the caches, downloads, build directories, dependency "+
-		"trees and container stores of the development tools this machine actually has -- a tool is named only "+
-		"when a program on the PATH, an environment variable or an existing directory says it is used here. "+
-		"Every finding starts unmarked, and the dependencies, the container images and the volumes are never "+
-		"marked for you: a store is looked at, and then cleaned, only because you marked it and confirmed the "+
-		"preview. Nothing runs on its own.", m.GetScreenTitle()))
+	// The screen's own scope and safety notes come last on purpose: they are what a
+	// first-time reader wants and what a small terminal can afford to lose, while the
+	// evidence of the finding under the cursor is neither.
+	areas = append(areas, diskCleanScopeArea(m, st), diskCleanSafetyArea(m))
+	return areas
+}
 
-	paragraphs = append(paragraphs, diskCleanScopeParagraph(st))
-	paragraphs = append(paragraphs, diskCleanSafetyParagraph(m))
-	return paragraphs
+// diskCleanItemArea is one finding as rows: what it is and how it is classified,
+// what it holds and where that number came from, why the scan found it, where it is,
+// and what removing it would cost to get back. In the preview the exact action the
+// confirmation would run is a row of its own at the top, where a small terminal
+// cannot cut it away from the finding it belongs to.
+func diskCleanItemArea(item diskclean.Item, action string) factArea {
+	// The order is the reader's: what it is and how it is classified, what it holds,
+	// why the scan found it, where it is, and what removing it would cost to get
+	// back. The finer numbers -- the second size, the file count, the source of the
+	// number -- come after those, because they qualify the size rather than decide
+	// anything on their own, and the frame's floor cuts from the bottom.
+	classification := item.Risk.Label()
+	if item.Category != "" {
+		classification += " · " + item.Category.Label()
+	}
+	rows := []iconFact{
+		{Icon: wslFactIconFinding, Label: "Finding", Value: item.Title},
+		{Icon: wslFactIconLimit, Label: "Risk", Value: classification},
+	}
+	if strings.TrimSpace(action) != "" {
+		rows = append(rows, iconFact{Icon: wslFactIconWrites, Label: "Would run", Value: action})
+	}
+	rows = append(rows, diskCleanSizeFacts(item)...)
+	if reason := strings.TrimSpace(item.Reason); reason != "" {
+		rows = append(rows, iconFact{Icon: wslFactIconWhy, Label: "Found because", Value: factClause(reason)})
+	}
+	// The paths and the engine objects are the answer to "where is this?". In the
+	// preview they are not repeated: the action row above already names the exact
+	// path a removal would take, and at the frame the request treats as the floor
+	// that row is what buys the reconstruction cost its place on the screen.
+	if strings.TrimSpace(action) == "" {
+		for _, path := range item.Paths {
+			rows = append(rows, iconFact{Icon: wslFactIconFolder, Label: "On disk", Value: path})
+		}
+		if len(item.VolatileObjects) > 0 && item.Size.Source != diskclean.SourceTool {
+			rows = append(rows, iconFact{Icon: wslFactIconDrives, Label: "Inside engine",
+				Value: strings.Join(item.VolatileObjects, ", ")})
+		}
+	}
+	if detail := strings.TrimSpace(item.Detail); detail != "" {
+		rows = append(rows, iconFact{Icon: wslFactIconEvidence, Label: "Reconstruct", Value: factClause(detail)})
+	}
+	return factArea{Name: "Under the cursor", Facts: rows}
+}
+
+// diskCleanSizeFacts is what one finding holds, split into the facts a reader can
+// check: the space on disk, the contents behind it, the number of files, where the
+// number came from, and the two caveats that decide how far to trust it.
+func diskCleanSizeFacts(item diskclean.Item) []iconFact {
+	switch {
+	case item.Size.Missing:
+		return []iconFact{{Icon: wslFactIconLimit, Label: "Holds",
+			Value: "nothing: the store is not there any more, or was never created"}}
+	case item.Size.Err != "":
+		return []iconFact{{Icon: wslFactIconLimit, Label: "Holds",
+			Value: "size could not be measured: " + factClause(item.Size.Err)}}
+	}
+
+	rows := []iconFact{{Icon: wslFactIconDisk, Label: "On disk", Value: humanBytes(uint64(item.Size.Physical))}}
+	if item.Size.Logical != item.Size.Physical {
+		rows = append(rows, iconFact{Icon: wslFactIconDisk, Label: "Contents", Value: humanBytes(uint64(item.Size.Logical))})
+	}
+	// The count and the source share a row: together they say how far to trust the
+	// number above, and neither is a fact a reader acts on alone.
+	source := "walked"
+	if item.Size.Source == diskclean.SourceTool {
+		source = "tool-reported"
+	}
+	measure := source
+	if item.Size.Files > 0 {
+		measure = fmt.Sprintf("%d files, %s", item.Size.Files, source)
+	}
+	rows = append(rows, iconFact{Icon: wslFactIconEvidence, Label: "Measured", Value: measure})
+	if len(item.VolatileObjects) > 0 && item.Size.Source == diskclean.SourceTool {
+		rows = append(rows, iconFact{Icon: wslFactIconDrives, Label: "Inside engine",
+			Value: strings.Join(item.VolatileObjects, ", ")})
+	}
+	if item.Size.Truncated {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Lower bound",
+			Value: "the walk stopped at its own ceiling"})
+	}
+	if item.Size.Shared > 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Shared",
+			Value: "some files are counted under another finding too, and only once here"})
+	}
+	return rows
+}
+
+// diskCleanMeasurementArea is what the scan measured, and every reason a number in it
+// could be read for more than it is worth.
+func diskCleanMeasurementArea(items []diskclean.Item) factArea {
+	if len(items) == 0 {
+		return factArea{Name: "Measured", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Measured", Value: diskCleanScanNotice(items)},
+		}}
+	}
+
+	logical, physical, toolReports, missing, truncated, overlaps := int64(0), int64(0), 0, 0, 0, 0
+	for _, item := range items {
+		logical += item.Size.Logical
+		physical += item.Size.Physical
+		switch {
+		case item.Size.Missing:
+			missing++
+		case item.Size.Err != "":
+			missing++
+		case item.Size.Source == diskclean.SourceTool:
+			toolReports++
+		}
+		if item.Size.Truncated {
+			truncated++
+		}
+		if len(item.Overlaps) > 0 {
+			overlaps++
+		}
+	}
+
+	rows := []iconFact{
+		{Icon: wslFactIconDisk, Label: "On disk", Value: humanBytes(uint64(physical))},
+		{Icon: wslFactIconDisk, Label: "Contents", Value: humanBytes(uint64(logical))},
+		// The two sizes are not the same number, and the difference is a fact about the
+		// filesystem rather than a mistake in the arithmetic.
+		{Icon: wslFactIconWhy, Label: "They differ when", Value: "files are sparse, compressed, or still shared by another name"},
+	}
+	if toolReports > 0 {
+		verb := "report"
+		if toolReports == 1 {
+			verb = "reports"
+		}
+		rows = append(rows, iconFact{Icon: wslFactIconEvidence, Label: "Tool-reported",
+			Value: diskCleanCount(toolReports) + " " + verb + " its own number rather than being walked"})
+	}
+	if overlapping(items) {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Shared files",
+			Value: "counted once here, and a finding that shares bytes says so in its own card"})
+	}
+	if truncated > 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Stopped",
+			Value: diskCleanCount(truncated) + " hit the ceilings a scan runs under, so the size shown is a lower bound"})
+	}
+	if overlaps > 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Overlapping",
+			Value: diskCleanCount(overlaps) + " overlap another finding, so each would free less alone"})
+	}
+	if missing > 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Not measured",
+			Value: diskCleanCount(missing) + ", marked not measured rather than shown as empty"})
+	}
+	return factArea{Name: "Measured", Facts: rows}
+}
+
+// diskCleanSelectionArea is what the user has marked, split by what removing it would
+// cost, so a delicate item in the selection is visible before the preview rather than
+// inside it.
+func diskCleanSelectionArea(st diskCleanState) factArea {
+	count := st.Selection.Count(st.Items)
+	if count == 0 {
+		return factArea{Name: "Marked", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Selected", Value: "nothing"},
+			{Icon: wslFactIconAction, Label: "Next", Value: "mark the findings you want, then preview them"},
+		}}
+	}
+
+	safe, careful, delicate := 0, 0, 0
+	for _, item := range st.Items {
+		if !st.Selection.Has(item.ID) {
+			continue
+		}
+		switch item.Risk {
+		case diskclean.RiskSafe:
+			safe++
+		case diskclean.RiskCareful:
+			careful++
+		default:
+			delicate++
+		}
+	}
+
+	rows := []iconFact{{Icon: wslFactIconBenefit, Label: "Selected", Value: diskCleanCount(count)}}
+	if safe > 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconReadOnly, Label: "Safe", Value: diskCleanCount(safe) + " to rebuild"})
+	}
+	if careful > 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Careful",
+			Value: diskCleanCount(careful) + " downloaded or rebuilt again, at a cost in time and traffic"})
+	}
+	if delicate > 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Delicate",
+			Value: diskCleanCount(delicate) + " a tool's own data, which may hold something irreproducible"})
+	}
+	rows = append(rows, iconFact{Icon: wslFactIconAction, Label: "Preview",
+		Value: "names each one's command or path before anything runs"})
+	return factArea{Name: "Marked", Facts: rows}
+}
+
+// diskCleanResultArea is what the run did, item by item: what came back, what did
+// not, and why. The report's own lead number is the footer's, so this names the items
+// and their outcomes rather than repeating the total.
+func diskCleanResultArea(report diskclean.CleanReport) factArea {
+	if len(report.Results) == 0 {
+		return factArea{Name: "The run", Facts: []iconFact{
+			{Icon: wslFactIconLimit, Label: "Run", Value: "finished without reaching an item"},
+		}}
+	}
+
+	rows := make([]iconFact, 0, len(report.Results)+3)
+	for _, result := range report.Results {
+		outcome := ""
+		switch {
+		case !result.Ran:
+			outcome = "not run: " + factClause(result.Error)
+		case result.Refused:
+			outcome = "refused before anything was removed: " + factClause(result.Error)
+		case result.Error != "":
+			outcome = fmt.Sprintf("%s, and %s came back: %s", diskCleanFreedPhrase(result),
+				diskCleanCount(len(result.Skipped)), factClause(result.Error))
+		default:
+			outcome = diskCleanFreedPhrase(result)
+		}
+		// The item's name is part of the fact, not the label: a label is a column of
+		// about twenty cells and a store's name is often longer than that, so a name
+		// used as a label would be the one thing on this card that gets cut.
+		rows = append(rows, iconFact{Icon: wslFactIconFolder, Label: "Result", Value: result.Item.Title + ": " + outcome})
+		if len(result.Skipped) > 0 {
+			rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Left in place",
+				Value: strings.Join(boundedList(result.Skipped, 4), ", ") + ": held open, owned by another user, or refused"})
+		}
+	}
+
+	if report.FreedMeasured {
+		rows = append(rows, iconFact{Icon: wslFactIconDisk, Label: "Filesystem gained",
+			Value: humanBytes(uint64(report.FreedBytes)) + ", measured before the first command and after the last"})
+	} else if report.FreedNote != "" {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Not one number", Value: factClause(report.FreedNote)})
+	}
+	if report.Cancelled {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Stopped",
+			Value: "the items it had not reached were left exactly as they were"})
+	}
+	return factArea{Name: "The run", Facts: rows}
+}
+
+// diskCleanScopeArea says what was searched and how that scope is changed: the stores
+// are known locations, and the project directories are only the ones the user added.
+func diskCleanScopeArea(m Model, st diskCleanState) factArea {
+	rows := []iconFact{
+		{Icon: wslFactIconFolder, Label: "Looks at", Value: "the stores tools keep in their own locations, and the project directories here"},
+		{Icon: wslFactIconLimit, Label: "Never", Value: "walks a whole disk, or follows a symbolic link out of a store it knows"},
+	}
+	if len(st.ProjectRoots) == 0 {
+		rows = append(rows, iconFact{Icon: wslFactIconLimit, Label: "Projects",
+			Value: "none added, so project-level stores are not part of this scan"})
+	} else {
+		rows = append(rows, iconFact{Icon: wslFactIconFolder, Label: "Projects",
+			Value: strings.Join(st.ProjectRoots, ", ") + " (node_modules, target, build, dist, __pycache__, a virtualenv)"})
+	}
+	if st.Cwd != "" && !diskCleanHasRoot(st.ProjectRoots, st.Cwd) {
+		rows = append(rows, iconFact{Icon: wslFactIconFolder, Label: "Started from",
+			Value: st.Cwd + ", which the [" + diskCleanAddRootKey + "] key adds to the scope"})
+	}
+	return factArea{Name: "The scope", Facts: rows}
+}
+
+// diskCleanSafetyArea is the honest account of what the utility will not do, kept on
+// screen rather than in the documentation only. Each promise is one row, because the
+// paragraph this used to be was read by nobody who had already decided to mark a
+// store -- and the WSL row is the one that changes what the user should expect.
+func diskCleanSafetyArea(m Model) factArea {
+	rows := []iconFact{
+		{Icon: wslFactIconReadOnly, Label: "Engines", Value: "never deleted file by file: the engine's or manager's own prune command"},
+		{Icon: wslFactIconLimit, Label: "No command", Value: "the finding is reported rather than removed"},
+		{Icon: wslFactIconAction, Label: "Admin", Value: "attempted without a prompt; if refused, the exact command is named"},
+		{Icon: wslFactIconLimit, Label: "Removal", Value: "a removal is a removal; nothing is quarantined"},
+		{Icon: wslFactIconReadOnly, Label: "Marked", Value: "never for you: dependencies, container images and volumes are yours to choose"},
+		{Icon: wslFactIconEvidence, Label: "Telemetry", Value: "none: no network call and no background cleanup"},
+		{Icon: wslFactIconBenefit, Label: "Runs", Value: "only while you are on this screen, and Escape stops either one"},
+	}
+	if m.SystemInfo != nil && m.SystemInfo.IsWSL {
+		rows = append(rows,
+			iconFact{Icon: wslFactIconLimit, Label: "Inside WSL",
+				Value: "this frees space in the Linux filesystem, not on the Windows drive"},
+			iconFact{Icon: wslFactIconLimit, Label: "Virtual disk",
+				Value: "does not shrink on its own, and this utility will not compact it"},
+		)
+	}
+	return factArea{Name: "What it will not do", Facts: rows}
 }
 
 // diskCleanMeasurementParagraph is what the scan measured, and every reason a
@@ -311,16 +607,22 @@ func diskCleanSelectionParagraph(st diskCleanState) string {
 
 // diskCleanCardFloor is the rows the card of the finding under the cursor is
 // guaranteed at any terminal size. The card is what the decision about a store is
-// made on -- the category, the sizes and their source, the reason the scan found
-// it, the paths or engine objects it covers, and what removing it would cost -- so
-// the frame the request treats as the floor reserves these rows for it and windows
-// the list instead of letting the list take every row it asks for.
-const diskCleanCardFloor = 7
+// made on -- the classification, the sizes and their source, the reason the scan
+// found it, the paths or engine objects it covers, and what removing it would cost
+// -- so the frame the request treats as the floor reserves these rows for it and
+// windows the list instead of letting the list take every row it asks for.
+//
+// It is ten now, not seven, because the card states those as labelled rows instead
+// of sentences: each row costs the line its label and value share, and a row of
+// evidence is the one thing the floor may not cut. The rows come out of the list,
+// which is windowed around the cursor and says how many findings it hid.
+const diskCleanCardFloor = 10
 
 // diskCleanPreviewHeadFloor is what the preview's own headline costs above that
-// card: the sentence that says nothing has run yet and what the confirmation
-// would run. The card is not pushed off the floor by it, and the card is one row
-// taller here because the preview inserts the exact action line under its title.
+// card: the three rows that say nothing has run yet, how many items would run and
+// how many would not. The card is not pushed off the floor by it, and the card is
+// one row taller here because the preview inserts the exact action line under its
+// title.
 const diskCleanPreviewHeadFloor = 3
 
 // diskCleanFocusedFinding is the finding the cursor is on, and in the preview the
@@ -332,10 +634,24 @@ func (m Model) diskCleanFocusedFinding() (diskclean.Item, string, bool) {
 		return diskclean.Item{}, "", false
 	}
 	rows := m.diskCleanRows()
-	if m.Cursor < 0 || m.Cursor >= len(rows) {
-		return diskclean.Item{}, "", false
+	at := m.Cursor
+	if at < 0 || at >= len(rows) || rows[at].item < 0 {
+		// The cursor is on a heading, which is a divider rather than a finding. The card
+		// describes the first finding instead of going blank: a card that emptied itself
+		// on every heading would hide the evidence behind the arrow key that reached one,
+		// and the heading is not something to read about.
+		at = -1
+		for i, row := range rows {
+			if row.item >= 0 {
+				at = i
+				break
+			}
+		}
+		if at < 0 {
+			return diskclean.Item{}, "", false
+		}
 	}
-	row := rows[m.Cursor]
+	row := rows[at]
 	if row.item < 0 || row.item >= len(st.Items) {
 		return diskclean.Item{}, "", false
 	}

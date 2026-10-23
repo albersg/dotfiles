@@ -607,11 +607,18 @@ func (m Model) sshManagerFacts() []iconFact {
 				readOnly++
 			}
 		}
+		// One fact per number: the count, and the two reasons a host is or is not
+		// editable. Written as one sentence, the count and both reasons shared a
+		// row, and a reader looking for "can I edit this one?" had to parse a
+		// sentence to find the answer.
 		facts = append(facts,
 			iconFact{Label: "Files", Value: "The client reads " + sshReadFiles(m.SSH.ConfigFiles) + "."},
-			iconFact{Label: "Hosts", Value: fmt.Sprintf(
-				"%s; %d of them are managed by this tool, and %d more are shown read-only because editing them would mean rewriting somebody else's file.",
-				sshHostCountLabel(len(m.SSH.Hosts)), managed, readOnly)})
+			iconFact{Label: "Hosts", Value: sshHostCountLabel(len(m.SSH.Hosts))},
+			iconFact{Label: "Managed", Value: fmt.Sprintf("%d of them, by this tool", managed)})
+		if readOnly > 0 {
+			facts = append(facts, iconFact{Label: "Read-only", Value: fmt.Sprintf(
+				"%d, because editing them would mean rewriting somebody else's file", readOnly)})
+		}
 		if m.SSH.MatchBlocks > 0 {
 			facts = append(facts, iconFact{Label: "Match", Value: fmt.Sprintf(
 				"%d Match %s are evaluated by the client with criteria this report cannot fully reproduce; the entries inside them are shown as they are declared.",
@@ -624,9 +631,14 @@ func (m Model) sshManagerFacts() []iconFact {
 	}
 
 	facts = append(facts, iconFact{Label: "Tools", Value: sshToolSummary(mgr)})
-	facts = append(facts, iconFact{Label: "Writes", Value: fmt.Sprintf(
-		"This tool writes inside its own block in %s, and it rewrites an entry your own configuration already declares only when you ask it to. Either way: a backup beside the file first, the client's own parser validating the new text, and every line the change does not name left byte-for-byte as it is.",
-		sshManagerPath(mgr))})
+	// What a write would touch is three facts, and each is one row: where, when, and
+	// what protects the rest of the file. As one sentence a reader had to hold all
+	// three to answer the only question they came with -- whether their own entries
+	// are safe.
+	facts = append(facts,
+		iconFact{Label: "Writes", Value: "inside its own block in " + sshManagerPath(mgr)},
+		iconFact{Label: "Changes", Value: "an entry your configuration already declares, and only when you ask"},
+		iconFact{Label: "Keeps", Value: "a backup beside the file, the client's own parser validating the new text, and every unnamed line byte-for-byte"})
 	return facts
 }
 
@@ -1113,17 +1125,21 @@ func (m Model) sshTestFacts() []iconFact {
 	var facts []iconFact
 
 	if mgr == nil || !mgr.Caps.HasSSH() {
-		return []iconFact{{Label: "Client",
-			Value: "No connection can be tested here: the ssh client was not found on PATH, and this tool tests connections by asking the client to open one."}}
+		return []iconFact{
+			{Label: "Client", Value: "ssh was not found on PATH"},
+			{Label: "Effect", Value: "no connection can be tested here: this tool tests one by asking the client to open it"},
+		}
 	}
 	alias := strings.TrimSpace(m.SSH.TestAlias)
 	if alias == "" {
 		facts = append(facts, iconFact{Label: "Alias",
 			Value: "Type a host or an alias from the list, then press [r] on the run row to start the test."})
 	} else {
-		facts = append(facts, iconFact{Label: "Test", Value: fmt.Sprintf(
-			"The test asks ssh to open a session to %s and run `true` there, under a %s bound, with the configuration exactly as the client would use it.",
-			alias, sshTestTimeout)})
+		facts = append(facts,
+			iconFact{Label: "Alias", Value: alias},
+			iconFact{Label: "Asks ssh", Value: "to open a session and run `true` there"},
+			iconFact{Label: "Bound", Value: sshTestTimeout.String()},
+			iconFact{Label: "Config", Value: "exactly as the client would use it"})
 	}
 	// The rule is stated before the press and in both states of the field: it is the
 	// promise that makes the row safe to press, and it would be wrong to state it
@@ -1131,8 +1147,10 @@ func (m Model) sshTestFacts() []iconFact {
 	facts = append(facts,
 		iconFact{Label: "Before the press",
 			Value: "Nothing is sent anywhere until that press: no connection is opened while you read this."},
-		iconFact{Label: "Host keys",
-			Value: "Host keys are verified: an unknown or changed key fails the test, nothing is added to known_hosts, and no password is ever prompted for."})
+		iconFact{Label: "Host keys", Value: "verified"},
+		iconFact{Label: "Unknown key", Value: "fails the test"},
+		iconFact{Label: "known_hosts", Value: "nothing is added to it"},
+		iconFact{Label: "Password", Value: "never prompted for"})
 
 	if m.SSH.Testing {
 		return append(facts, iconFact{Label: "Running", Value: fmt.Sprintf("Running the test against %s…", m.SSH.Test.Alias)})

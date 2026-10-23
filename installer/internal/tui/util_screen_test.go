@@ -249,16 +249,17 @@ func TestScreenWSLResourcesShowsTheHostNumbersAndTheRecommendation(t *testing.T)
 
 	view := ansiEscape.ReplaceAllString(m.View(), "")
 	for _, want := range []string{
-		"16384 MiB",                     // the host's RAM, in the unit WSL uses
-		"8 logical processors",          // the host's CPUs
-		"12288 MB",                      // the recommended memory, as the state this test builds it
-		"3072 MB",                       // the recommended swap, a quarter of that memory
-		"4096MB",                        // what the file holds today, as the file writes it
-		"/mnt/c/Users/alber/.wslconfig", // where the file is
-		"Apply",                         // the fact that carries the effect
-		"WSL reads .wslconfig",          // and its sentence, up to the command it names
-		"Memory: 12288 MB",              // the draft, as a row
-		"Processors: 7",                 // the draft, as a row
+		"16.0 GiB",                             // the host's RAM, as the row renders it
+		"Windows CPUs",                         // the host's CPUs
+		"8",                                    // and the number itself
+		"12288 MB",                             // the recommended memory, as the state this test builds it
+		"3072 MB",                              // the recommended swap, a quarter of that memory
+		"4096MB",                               // what the file holds today, as the file writes it
+		"/mnt/c/Users/alber/.wslconfig",        // where the file is
+		"Applies",                              // the fact that carries the effect
+		"on Windows, then reopen the terminal", // and the moment it takes effect
+		"Memory: 12288 MB",                     // the draft, as a row
+		"Processors: 7",                        // the draft, as a row
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the WSL resources screen does not show %q:\n%s", want, view)
@@ -710,7 +711,7 @@ func TestWritingTheWSLConfigKeepsTheTableWhileItRereads(t *testing.T) {
 	if strings.Contains(view, "not adjustable here yet") || strings.Contains(view, "reading the Windows profile") {
 		t.Errorf("the write blanked the table while it re-reads:\n%s", view)
 	}
-	if !strings.Contains(view, "Recommended for this host") {
+	if !strings.Contains(view, "Recommended") {
 		t.Errorf("the table left the screen after the write:\n%s", view)
 	}
 	if !strings.Contains(view, "Refreshing") {
@@ -730,7 +731,7 @@ func TestWritingTheWSLConfigKeepsTheTableWhileItRereads(t *testing.T) {
 	if strings.Contains(dryView, "Refreshing") {
 		t.Errorf("a dry run claims to refresh values it did not write:\n%s", dryView)
 	}
-	if !strings.Contains(dryView, "Recommended for this host") {
+	if !strings.Contains(dryView, "Recommended") {
 		t.Errorf("a dry run blanked the table:\n%s", dryView)
 	}
 }

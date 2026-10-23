@@ -28,6 +28,34 @@ import (
 // names them. A screen that has nothing to state is not in the registry, and keeps
 // drawing its prose.
 
+// factArea is one division of a screen's detail: the name the card's divider
+// carries and the rows inside it. A screen whose detail is a flat list returns one
+// area with no name, and its card draws no divider -- the card's rule under the
+// chip is not a section.
+//
+// The areas exist so a long detail is not one block of rows: the WSL advisor's
+// runtime, storage, resolver, Windows-side configuration and the finding under the
+// cursor are five short sections a reader scans, instead of eleven facts in one
+// column. A name is never drawn without rows under it (sectionScreenGroups drops
+// an empty area), because a divider over nothing is a heading for a section the
+// screen does not have.
+type factArea struct {
+	Name  string
+	Facts []iconFact
+}
+
+// factAreaFacts is every area's facts in the order the screen listed them, with the
+// names dropped: a divider is a drawing, not a fact, so the compact body's prose
+// (factProse) and the card read one list and the names never reach the words the
+// floor prints.
+func factAreaFacts(areas []factArea) []iconFact {
+	out := make([]iconFact, 0, len(areas))
+	for _, area := range areas {
+		out = append(out, area.Facts...)
+	}
+	return out
+}
+
 // factLines draws a screen's facts in the grammar: iconFactLines for the facts
 // that are a labelled value, and a labelled block for a value that carries its own
 // lines. A preview is lines of a file, a public key is one long line, and a tool's
@@ -158,46 +186,90 @@ func factEndsSentence(value string) bool {
 		strings.HasSuffix(value, "?") || strings.HasSuffix(value, "!")
 }
 
-// sectionScreenFacts is the registry: the detail of the screens whose body is a
-// list of facts, and false for every screen that still composes its detail as
-// prose. It is asked by both shapes -- sectionScreenGroups for the card and each
-// screen's own description function for the compact body -- so a screen is either
-// converted once or not at all.
-func (m Model) sectionScreenFacts() ([]iconFact, bool) {
+// sectionScreenAreas is the registry: the detail of the screens whose body is a
+// list of facts, divided into the areas its card sets off with a divider, and
+// false for every screen that still composes its detail as prose. A screen with
+// one block of facts returns that block as a single unnamed area.
+//
+// It is the one list: sectionScreenFacts flattens it for the compact body's prose
+// and sectionScreenGroups draws it for the card, so a screen is either converted
+// once or not at all, and a fact cannot be stated two ways.
+func (m Model) sectionScreenAreas() ([]factArea, bool) {
 	switch m.Screen {
 	case ScreenSSHManager:
-		return m.sshManagerFacts(), true
+		return []factArea{{Facts: m.sshManagerFacts()}}, true
 	case ScreenSSHHost:
-		return m.sshHostFacts(), true
+		return []factArea{{Facts: m.sshHostFacts()}}, true
 	case ScreenSSHForm:
-		return m.sshFormFacts(), true
+		return []factArea{{Facts: m.sshFormFacts()}}, true
 	case ScreenSSHKeys:
-		return m.sshKeyFacts(), true
+		return []factArea{{Facts: m.sshKeyFacts()}}, true
 	case ScreenSSHAgent:
-		return m.sshAgentFacts(), true
+		return []factArea{{Facts: m.sshAgentFacts()}}, true
 	case ScreenSSHDiagnostics:
-		return m.sshDiagnosticFacts(), true
+		return []factArea{{Facts: m.sshDiagnosticFacts()}}, true
 	case ScreenSSHTest:
-		return m.sshTestFacts(), true
+		return []factArea{{Facts: m.sshTestFacts()}}, true
 	case ScreenWSLResources:
-		return m.wslResourceFacts(), true
+		return m.wslResourceAreas(), true
 	case ScreenWSLAdvisor:
-		return m.wslAdvisorFacts(), true
+		return m.wslAdvisorAreas(), true
 	case ScreenWSLBenchmark:
-		return m.wslBenchmarkFacts(), true
+		return m.wslBenchmarkAreas(), true
 	case ScreenWSLMigration:
-		return m.wslMigrationFacts(), true
+		return m.wslMigrationAreas(), true
+	case ScreenDoctor:
+		return m.doctorAreas(), true
+	case ScreenDoctorFix:
+		return m.doctorFixAreas(), true
+	case ScreenNetworkDiagnostics:
+		return m.networkAreas(), true
+	case ScreenDiskCleaner:
+		return m.diskCleanerAreas(), true
 	}
 	return nil, false
 }
 
-// sectionScreenGroups is the detail column's body for a converted screen: the
-// facts as the grammar's rows, in one group, because a screen's facts are one
-// block and a divider between them would name a category the screen does not have.
-func (m Model) sectionScreenGroups(content int) ([]cardGroup, bool) {
-	facts, ok := m.sectionScreenFacts()
+// sectionScreenFacts is the same detail as one flat list, which is what the compact
+// body's prose is derived from. It is a flatten of the areas rather than a second
+// registry, so a screen cannot name a fact on the card that its prose never says.
+func (m Model) sectionScreenFacts() ([]iconFact, bool) {
+	areas, ok := m.sectionScreenAreas()
 	if !ok {
 		return nil, false
 	}
-	return []cardGroup{{Lines: factLines(facts, content)}}, true
+	return factAreaFacts(areas), true
+}
+
+// sectionScreenGroups is the detail column's body for a converted screen: one card
+// group per area, the area's name on the divider the card draws above it. The first
+// group is set off by the card's own rule under the chip, so it carries its name
+// only when the screen has more than one area -- a single divider for a single
+// section would be a heading with nothing to separate.
+func (m Model) sectionScreenGroups(content int) ([]cardGroup, bool) {
+	areas, ok := m.sectionScreenAreas()
+	if !ok {
+		return nil, false
+	}
+	groups := make([]cardGroup, 0, len(areas))
+	named := len(areas) > 1
+	for _, area := range areas {
+		lines := factLines(area.Facts, content)
+		if len(lines) == 0 {
+			// An empty area would draw its divider over nothing.
+			continue
+		}
+		title := ""
+		if named {
+			title = area.Name
+		}
+		groups = append(groups, cardGroup{Title: title, Lines: lines})
+	}
+	if len(groups) == 0 {
+		return nil, false
+	}
+	if len(groups) == 1 {
+		groups[0].Title = ""
+	}
+	return groups, true
 }

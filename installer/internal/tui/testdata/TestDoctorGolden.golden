@@ -2,12 +2,12 @@
    Utilities                                      Showing 1-5 of 9 · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Development environment                                                       
-  5 checks ran, 5 answers finished. The list is the problems and the unknown    
-  answers only; press t for all of them.                                        
-  Error — ~/.ssh has mode 0755                                                  
-  Evidence: the directory has mode 0755, and OpenSSH wants 0700                 
-  Impact: OpenSSH refuses a private key inside a directory others can read, so  
-  … and 3 more                                                                  
+  Ran: 5 checks.                                                                
+  Answered: 5 answers.                                                          
+  Listed: the problems and the unknown answers only.                            
+  Finding: ~/.ssh has mode 0755.                                                
+  State: Error.                                                                 
+  … and 5 more                                                                  
                                                                                 
   ▸ ✗ Error: ~/.ssh has mode 0755                                               
     ! Warning: PATH entry 4 of 9: ~/bin                                         

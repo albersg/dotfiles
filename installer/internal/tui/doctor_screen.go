@@ -886,87 +886,131 @@ func (m Model) doctorNotice() string {
 // doctorDescription is the body: what the screen does, where the answers come
 // from, and -- once a run has happened -- the finding under the cursor in full.
 //
-// A finding is what the brief says a result has to be: the state, the evidence
-// it was read from, what it means, and what to do. The list carries the state
-// and the subject; this carries the rest.
+// It is the prose of doctorAreas, which is what the card beside the list draws: the
+// same rows, so the floor and the wide frame cannot explain one finding two ways.
 func (m Model) doctorDescription() []string {
+	return factProse(factAreaFacts(m.doctorAreas()))
+}
+
+// doctorAreas is the doctor's detail as areas: what the scan reads and promises
+// before it has run, the run's own counts once it has, and the finding under the
+// cursor -- its state, its evidence, what it means, what to do and the fix it
+// offers -- one short row each.
+//
+// The body was paragraphs: two orientation paragraphs before a run, then "5 checks
+// ran, 5 answers finished. The list is the problems and the unknown answers only;
+// press t for all of them." followed by "Error — ~/.ssh has mode 0755", "Evidence:
+// …", "Impact: …", "What to do: …". The labels were already there; what was not
+// was a column, so a reader scanning for the fix had to read the impact to find it.
+func (m Model) doctorAreas() []factArea {
 	run := m.Doctor.Run
 	if run == nil {
-		return []string{
-			"Reads this machine and reports what it finds: the PATH a shell resolves, the shells' configuration, " +
-				"the tools this installer manages, the dotfiles it owns, the basics of git and SSH, and the " +
-				"environment faults that break a run.",
-			"Nothing is changed by a scan. Each answer states its evidence, what it means and what to do; a check " +
-				"that could not look says unknown instead of ok, and a configuration this installer does not own is " +
-				"named rather than claimed.",
+		return []factArea{
+			{Name: "What it reads", Facts: []iconFact{
+				{Icon: wslFactIconEvidence, Label: "Checks", Value: "PATH, shells, tools, dotfiles, git, SSH and the environment"},
+				{Icon: wslFactIconWhy, Label: "Each answer", Value: "its evidence, what it means, and what to do"},
+			}},
+			{Name: "The scan", Facts: []iconFact{
+				{Icon: wslFactIconReadOnly, Label: "Writes", Value: "nothing"},
+				{Icon: wslFactIconLimit, Label: "Cannot look", Value: "unknown, never ok"},
+				{Icon: wslFactIconFolder, Label: "Not owned", Value: "named rather than claimed"},
+			}},
 		}
 	}
 
-	paragraphs := []string{
-		fmt.Sprintf("%s ran, %s finished. The list is %s.",
-			doctorCounted(len(run.Order), "check", "checks"),
-			doctorCounted(len(run.Results), "answer", "answers"),
-			func() string {
-				if m.Doctor.AllFindings {
-					return "every finding"
-				}
-				return "the problems and the unknown answers only; press t for all of them"
-			}()),
+	list := "the problems and the unknown answers only"
+	if m.Doctor.AllFindings {
+		list = "every finding"
+	}
+	counts := []iconFact{
+		{Icon: wslFactIconEvidence, Label: "Ran", Value: doctorCounted(len(run.Order), "check", "checks")},
+		{Icon: wslFactIconBenefit, Label: "Answered", Value: doctorCounted(len(run.Results), "answer", "answers")},
+		{Icon: wslFactIconFolder, Label: "Listed", Value: list},
 	}
 	if run.running() {
-		paragraphs = append(paragraphs, "Escape cancels: the checks that did not run are recorded as unknown with the reason.")
+		counts = append(counts, iconFact{Icon: wslFactIconLimit, Label: "Cancel",
+			Value: "Escape: the checks that did not run are recorded as unknown"})
 	}
+	areas := []factArea{{Name: "The run", Facts: counts}}
 
 	finding := m.doctorCursorFinding()
 	if finding == nil {
-		if len(paragraphs) < 2 {
-			paragraphs = append(paragraphs, "Move the cursor onto a finding to read its evidence, its impact and what to do.")
+		if !run.running() {
+			areas = append(areas, factArea{Name: "Reading one", Facts: []iconFact{
+				{Icon: wslFactIconAction, Label: "Move", Value: "onto a finding to read its evidence, its impact and what to do"},
+			}})
 		}
-		return paragraphs
+		return areas
 	}
 
-	paragraphs = append(paragraphs,
-		fmt.Sprintf("%s — %s", finding.Status.label(), finding.Subject),
-		"Evidence: "+finding.Evidence,
-		"Impact: "+finding.Impact,
-		"What to do: "+finding.Advice,
-	)
-	if finding.Fix != nil {
-		paragraphs = append(paragraphs, "The doctor can also do this for you: "+finding.Fix.summary()+". Press Enter to see exactly what would change.")
+	rows := []iconFact{
+		{Icon: wslFactIconFinding, Label: "Finding", Value: finding.Subject},
+		{Icon: wslFactIconLimit, Label: "State", Value: finding.Status.label()},
+		{Icon: wslFactIconEvidence, Label: "Evidence", Value: factClause(finding.Evidence)},
+		{Icon: wslFactIconWhy, Label: "Impact", Value: factClause(finding.Impact)},
+		{Icon: wslFactIconAction, Label: "What to do", Value: factClause(finding.Advice)},
 	}
-	return paragraphs
+	if finding.Fix != nil {
+		// The fix is one deterministic change, and the row says both what it does and the
+		// key that opens its confirmation: the press is named on the row that offers it.
+		rows = append(rows, iconFact{Icon: wslFactIconWrites, Label: "The doctor can",
+			Value: factClause(finding.Fix.summary()) + "; Enter shows exactly what would change"})
+	}
+	return append(areas, factArea{Name: "Under the cursor", Facts: rows})
 }
 
 // doctorFixDescription is the confirmation's body: the effect as a before/after,
 // the risk, the permission and the backup -- read from the state before anything
-// is changed -- or the refusal with its reason.
+// is changed -- or the refusal with its reason. It is the prose of doctorFixAreas.
 func (m Model) doctorFixDescription() []string {
+	return factProse(factAreaFacts(m.doctorFixAreas()))
+}
+
+// doctorFixAreas is the confirmation as rows: the one change, its effect line by
+// line, what it costs, what it needs and what is kept -- or why it cannot be
+// applied at all, which is one row rather than a paragraph of refusal.
+func (m Model) doctorFixAreas() []factArea {
 	pending := m.Doctor.Pending
 	if pending == nil || pending.Fix == nil {
-		return []string{"There is no fix to confirm. Press Escape to go back to the findings."}
+		return []factArea{{Facts: []iconFact{{Icon: wslFactIconLimit, Label: "Nothing to confirm",
+			Value: "Escape goes back to the findings"}}}}
 	}
 	preview := m.Doctor.PendingPreview
 
-	paragraphs := []string{
-		fmt.Sprintf("%s offers one deterministic change, and this is exactly it. Nothing else on the machine is touched.", pending.Subject),
-	}
-	if preview.Refusal != "" {
-		paragraphs = append(paragraphs, "This cannot be applied: "+preview.Refusal)
-		paragraphs = append(paragraphs, "Use the manual steps on the findings list instead.")
-		return paragraphs
-	}
+	effect := make([]iconFact, 0, len(preview.Effect))
 	for _, line := range preview.Effect {
-		paragraphs = append(paragraphs, line)
+		effect = append(effect, iconFact{Icon: wslFactIconAction, Label: "Effect", Value: line})
 	}
-	paragraphs = append(paragraphs,
-		"Risk: "+preview.Risk,
-		"Permission needed: "+preview.Permission,
-		"Backup: "+preview.Backup,
-	)
+
+	areas := []factArea{
+		{Name: "The change", Facts: []iconFact{
+			{Icon: wslFactIconWrites, Label: "Subject", Value: pending.Subject},
+			{Icon: wslFactIconWhy, Label: "Scope", Value: "one deterministic change; nothing else on the machine is touched"},
+		}},
+		{Name: "What it does", Facts: effect},
+	}
+
+	if preview.Refusal != "" {
+		return append(areas,
+			factArea{Name: "Cannot be applied", Facts: []iconFact{
+				{Icon: wslFactIconLimit, Label: "Refused", Value: factClause(preview.Refusal)},
+				{Icon: wslFactIconAction, Label: "Instead", Value: "the manual steps on the findings list"},
+			}},
+		)
+	}
+
+	areas = append(areas, factArea{Name: "Before you press", Facts: []iconFact{
+		{Icon: wslFactIconLimit, Label: "Risk", Value: factClause(preview.Risk)},
+		{Icon: wslFactIconReadOnly, Label: "Permission", Value: factClause(preview.Permission)},
+		{Icon: wslFactIconDisk, Label: "Backup", Value: factClause(preview.Backup)},
+	}})
 	if m.Doctor.FixNotice == "" {
-		paragraphs = append(paragraphs, "Press a to apply it, or Escape to leave without changing anything.")
+		areas = append(areas, factArea{Name: "The press", Facts: []iconFact{
+			{Icon: wslFactIconAction, Label: "Apply", Value: "[a] applies it"},
+			{Icon: wslFactIconReadOnly, Label: "Leave", Value: "Escape leaves without changing anything"},
+		}})
 	}
-	return paragraphs
+	return areas
 }
 
 // doctorFixRows is the confirmation's list: the one action with the letter that

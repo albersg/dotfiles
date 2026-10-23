@@ -28,17 +28,17 @@ type convertedScreen struct {
 func convertedScreens(t *testing.T) []convertedScreen {
 	t.Helper()
 	return []convertedScreen{
-		{"ssh-manager", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHManager) }, "managed by this tool"},
+		{"ssh-manager", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHManager) }, "1 of them, by this tool"},
 		{"ssh-host", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHHost) }, "Declared in "},
 		{"ssh-form", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHForm) }, "An alias is required"},
 		{"ssh-keys", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHKeys) }, "A private key is never read by this screen"},
 		{"ssh-agent", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHAgent) }, "holds"},
 		{"ssh-diagnostics", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHDiagnostics) }, "to look at"},
-		{"ssh-test", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHTest) }, "Host keys are verified"},
-		{"wsl-resources", wslResourcesFrameCase, "Memory is three quarters"},
-		{"wsl-advisor", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLAdvisor) }, "This instance has"},
-		{"wsl-benchmark", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLBenchmark) }, "Targets, measured in this order"},
-		{"wsl-migration", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLMigration) }, "Copy "},
+		{"ssh-test", func(t *testing.T) Model { return sshTestModel(t, ScreenSSHTest) }, "Host keys"},
+		{"wsl-resources", wslResourcesFrameCase, "three quarters of the host's RAM"},
+		{"wsl-advisor", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLAdvisor) }, "8.0 GiB total"},
+		{"wsl-benchmark", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLBenchmark) }, "measured from top to bottom"},
+		{"wsl-migration", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLMigration) }, "copy /windir"},
 	}
 }
 
@@ -114,6 +114,136 @@ func TestEveryConvertedScreenKeepsEveryFactInBothShapes(t *testing.T) {
 	}
 }
 
+// factValueRowMeasure is the most a fact's value may be and still read as a row: two
+// lines of the value column at the narrowest frame that draws the two-column card. A
+// value longer than this is a paragraph the card is drawing under a label, which is
+// the shape this pass exists to remove.
+const factValueRowMeasure = 140
+
+// factArgumentLabels are the one kind of value that stays long: a finding's own
+// argument -- why it matters, what acting is worth, what to do. Those sentences are
+// the model's own measured claims (wsladvisor.go writes them), and cutting one to fit
+// a row would either drop a fact or invent a shorter one. They are still rows -- one
+// label and one value each, wrapped in the card's column -- which is what the pass was
+// for; what they are not is a row that could be split further without losing the
+// argument the finding exists to make.
+var factArgumentLabels = map[string]bool{
+	"Why it matters": true,
+	"Benefit":        true,
+	"What to do":     true,
+}
+
+// TestEveryConvertedRowIsALabelAndAShortValue is the wall-of-text guard: a fact row
+// carries the label that names it, and its value reads as a row -- two lines of the
+// value column at the narrowest two-column frame -- everywhere except a finding's own
+// argument. A block value (a preview's lines, a public key, a tool's output) keeps its
+// own lines and is exempt from the measure, because wrapping it into a sentence would
+// join lines that mean different things.
+func TestEveryConvertedRowIsALabelAndAShortValue(t *testing.T) {
+	for _, c := range convertedScreens(t) {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			areas, ok := c.build(t).sectionScreenAreas()
+			if !ok {
+				t.Fatalf("%s is not in the facts registry", c.name)
+			}
+			for _, area := range areas {
+				for _, fact := range area.Facts {
+					if strings.TrimSpace(fact.Value) == "" {
+						continue
+					}
+					if strings.TrimSpace(fact.Label) == "" {
+						t.Errorf("%s draws %q without the label that names it", c.name, fact.Value)
+						continue
+					}
+					if strings.Contains(fact.Value, "\n") || factArgumentLabels[fact.Label] {
+						continue
+					}
+					if n := len([]rune(fact.Value)); n > factValueRowMeasure {
+						t.Errorf("%s draws a paragraph under %q (%d runes, want <= %d): the card is not a page",
+							c.name, fact.Label, n, factValueRowMeasure)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestTheDetailCardDividesTheConvertedScreensByArea pins the dividers: a screen whose
+// detail has more than one area draws each area under its own name, so a long detail
+// is a set of short sections rather than one column of facts. The first area rides the
+// card's own rule under the chip, which is the card's grammar and not a missing name.
+func TestTheDetailCardDividesTheConvertedScreensByArea(t *testing.T) {
+	m := wslAdvisorFrameModel(t, ScreenWSLAdvisor)
+	areas, ok := m.sectionScreenAreas()
+	if !ok || len(areas) < 2 {
+		t.Fatalf("the advisor holds %d areas, want the instance, storage, resolver and the rest", len(areas))
+	}
+	groups, ok := m.sectionScreenGroups(cardContentWidth(120))
+	if !ok {
+		t.Fatal("the advisor draws no groups")
+	}
+	for _, want := range []string{"Instance", "Storage", "Resolver", "Windows", "This report", "Finding"} {
+		found := false
+		for _, group := range groups {
+			if group.Title == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("the advisor's card draws no divider named %q: %v", want, groupTitles(groups))
+		}
+	}
+}
+
+// groupTitles names the dividers a card draws, for a failure message.
+func groupTitles(groups []cardGroup) []string {
+	titles := make([]string, 0, len(groups))
+	for _, group := range groups {
+		titles = append(titles, group.Title)
+	}
+	return titles
+}
+
+// TestDiskCleanerListIsACardMenuAndItsPressesAreTheFooters pins the disk cleaner's
+// two shapes after the redesign: the list is headings and two-line findings, and every
+// press that is not a finding's switch is named in the footer and drawn nowhere in the
+// card. It is the guard the user's report asked for on this screen.
+func TestDiskCleanerListIsACardMenuAndItsPressesAreTheFooters(t *testing.T) {
+	m := diskCleanerFrameCase(t)
+	m.Width, m.Height = 160, 50
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	for _, want := range []string{
+		"npm — 1 finding",             // a heading, drawn as the card's divider
+		"apt — 1 finding",             // and the next one
+		"The npm cache",               // a finding's title
+		"900.0 MiB · safe to rebuild", // and what it holds beside what removing it costs
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the disk cleaner's list does not draw %q:\n%s", want, view)
+		}
+	}
+	for _, gone := range []string{
+		"[s] Scan again",
+		"[s] Scan for development caches",
+		"[d] Add the project directory",
+		"[p] Preview the",
+		"← Back",
+	} {
+		if strings.Contains(view, gone) {
+			t.Errorf("the list still draws the press %q as a row:\n%s", gone, view)
+		}
+	}
+	// The presses are the footer's, all of them, in the order the handler reads them.
+	for _, press := range []string{"[s] scan", "[p] preview", "[d] add the project directory", "[Space] select or drop", "[Esc] back"} {
+		if !strings.Contains(view, press) {
+			t.Errorf("the footer does not name %q:\n%s", press, view)
+		}
+	}
+}
+
 // TestTheFactsAreTheModelsOwnValues is the no-second-copy guard: a datum changed in
 // the model reaches both shapes, and the value it replaced is gone from both.
 func TestTheFactsAreTheModelsOwnValues(t *testing.T) {
@@ -134,13 +264,13 @@ func TestTheFactsAreTheModelsOwnValues(t *testing.T) {
 
 	resources := wslResourcesFrameCase(t)
 	resources.WSLState.Plan.MemoryMB = 4321
-	if body := strings.Join(resources.wslResourceDescription(), " "); !strings.Contains(body, "memory 4321 MB") {
+	if body := strings.Join(resources.wslResourceDescription(), " "); !strings.Contains(body, "Memory: 4321 MB") {
 		t.Errorf("the compact body does not draw the planned memory the model holds:\n%s", body)
 	}
 	resources.Width, resources.Height = 160, 50
 	resources.Animating = false
 	plain = cardText(resources.View())
-	if !strings.Contains(plain, "memory 4321 MB") {
+	if !strings.Contains(plain, "4321 MB") {
 		t.Errorf("the card does not draw the planned memory the model holds:\n%s", plain)
 	}
 }

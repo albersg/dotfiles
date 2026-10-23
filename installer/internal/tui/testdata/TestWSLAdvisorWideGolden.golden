@@ -1,0 +1,50 @@
+[?25l[?2004h]2;dotfiles Installer                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  ╭─ WSL performance ──────────────────────────────────────────────────╮  ╭─ Details ────────────────────────────────────────────────────────────────────────╮  
+  │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
+  │ ▸ Notice · DNS goes through the Windows host                       │  │  Runtime            WSL 2                                                       │  
+  │   Info · The working directory is on the distribution's disk       │  │  Distro             Ubuntu-24.04                                                │  
+  │   Info · 1 Windows filesystem is mounted in                        │  │  Kernel             5.15.153.1-microsoft-standard-WSL2                          │  
+  │   Info · The resource limits are applied                           │  │  Processors         8                                                           │  
+  │ ────────────────────────────────────────────────────────────────── │  │  Memory             8.0 GiB total, 37% in use                                   │  
+  │   [r] Read the machine again                                       │  │  Swap               2.0 GiB total, 0 B in use                                   │  
+  │ → Measure the storage this project is on                           │  ├─ Storage ────────────────────────────────────────────────────────────────────────┤  
+  │ ────────────────────────────────────────────────────────────────── │  │  Distribution       ext4 at /, 50.0 GiB free of 100.0 GiB                       │  
+  │ ← Back                                                             │  │  Drives             /windir (set in /etc/wsl.conf)                              │  
+  ╰────────────────────────────────────────────────────────────────────╯  │  Mounts             /windir/c (9p)                                              │  
+                                                                          ├─ Resolver ───────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Nameservers        10.255.255.254                                              │  
+                                                                          ├─ Windows ────────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Config             C:\Users\ana\.wslconfig                                     │  
+                                                                          │  Memory limit       8192 MB                                                     │  
+                                                                          │  Processors         8                                                           │  
+                                                                          │  Swap               2048 MB                                                     │  
+                                                                          ├─ Elsewhere ──────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Shell startup      measured by Shell Startup in this same section              │  
+                                                                          ├─ This report ────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Read-only          nothing here changes a file, a mount, a disk or a network   │  
+                                                                          │                      setting                                                     │  
+                                                                          │  Writes             only the assisted copy, and only where you confirm it; it   │  
+                                                                          │                      never deletes the source                                    │  
+                                                                          ├─ Finding ────────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Finding            DNS goes through the Windows host                           │  
+                                                                          │  Severity           Notice                                                      │  
+                                                                          │  Origin             documented behaviour                                        │  
+                                                                          │  Scope              changed inside this distribution, and applied only after    │  
+                                                                          │                      WSL restarts it                                             │  
+                                                                          │  Evidence           /etc/resolv.conf lists 10.255.255.254; the file says WSL    │  
+                                                                          │                      generated it                                                │  
+                                                                          │  Why it matters     WSL writes a resolver that points at the host, so every     │  
+                                                                          │                      lookup leaves the distribution and is answered on the       │  
+                                                                          │                      Windows side. That is WSL's documented default and it       │  
+                                                                          │                      usually works; it is also the reason DNS depends on the     │  
+                                                                          │                      host's connection, its VPN and its proxy state, and on a    │  
+                                                                          │                      machine whose host resolver is slow every new connection    │  
+                                                                          │                      waits                                                       │  
+                                                                          │  Benefit            A resolver the distribution manages itself makes lookups    │  
+                                                                          │                      independent of the host's resolver -- and of what a VPN     │  
+                                                                          │ … and 7 more                                                                     │  
+                                                                          ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                             ↑/k up • ↓/j down • [Enter] open • [r] read it again • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

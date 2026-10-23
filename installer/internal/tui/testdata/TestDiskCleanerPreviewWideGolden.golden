@@ -1,0 +1,50 @@
+[?25l[?2004h                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  ╭─ Development caches ───────────────────────────────────────────────╮  ╭─ Details ────────────────────────────────────────────────────────────────────────╮  
+  │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
+  │                                                                    │  │  Nothing run        the preview removes nothing                                 │  
+  ├─ docker — 1 finding ───────────────────────────────────────────────┤  │  Would run          2 items                                                     │  
+  │ ▸ The container volumes                                            │  │  Would not          0 items                                                     │  
+  │   500.0 MiB (tool-reported) · delicate                             │  ├─ Under the cursor ───────────────────────────────────────────────────────────────┤  
+  ├─ npm — 1 finding ──────────────────────────────────────────────────┤  │  Finding            The container volumes                                       │  
+  │ ▣ The npm cache                                                    │  │  Risk               delicate · persistent volumes                               │  
+  │   900.0 MiB · safe to rebuild                                      │  │  Would run          The confirmation would run `docker volume prune -f`.        │  
+  ╰────────────────────────────────────────────────────────────────────╯  │  On disk            500.0 MiB                                                   │  
+                                                                          │  Measured           tool-reported                                               │  
+                                                                          │  Inside engine      volumes                                                     │  
+                                                                          │  Found because      docker is on PATH and answered `system df` for the volumes  │  
+                                                                          │  Reconstruct        the volumes a container wrote: data the engine owns, which  │  
+                                                                          │                      may not be reproducible                                     │  
+                                                                          ├─ Measured ───────────────────────────────────────────────────────────────────────┤  
+                                                                          │  On disk            2.3 GiB                                                     │  
+                                                                          │  Contents           2.5 GiB                                                     │  
+                                                                          │  They differ when   files are sparse, compressed, or still shared by another    │  
+                                                                          │                      name                                                        │  
+                                                                          │  Tool-reported      1 item reports its own number rather than being walked      │  
+                                                                          │  Shared files       counted once here, and a finding that shares bytes says so  │  
+                                                                          │                      in its own card                                             │  
+                                                                          │  Stopped            1 item hit the ceilings a scan runs under, so the size      │  
+                                                                          │                      shown is a lower bound                                      │  
+                                                                          │  Overlapping        1 item overlap another finding, so each would free less     │  
+                                                                          │                      alone                                                       │  
+                                                                          ├─ Marked ─────────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Selected           2 items                                                     │  
+                                                                          │  Safe               1 item to rebuild                                           │  
+                                                                          │  Delicate           1 item a tool's own data, which may hold something          │  
+                                                                          │                      irreproducible                                              │  
+                                                                          │  Preview            names each one's command or path before anything runs       │  
+                                                                          ├─ The scope ──────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Looks at           the stores tools keep in their own locations, and the       │  
+                                                                          │                      project directories here                                    │  
+                                                                          │  Never              walks a whole disk, or follows a symbolic link out of a     │  
+                                                                          │                      store it knows                                              │  
+                                                                          │  Projects           none added, so project-level stores are not part of this    │  
+                                                                          │                      scan                                                        │  
+                                                                          │  Started from       /home/testuser/projects, which the [d] key adds to the      │  
+                                                                          │                      scope                                                       │  
+                                                                          │                                                                                  │  
+                                                                          ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                                                                                                
+                                                                                                                    ↑/k up • ↓/j down • [c] clean • [Esc] back  ]2;dotfiles Installer[49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

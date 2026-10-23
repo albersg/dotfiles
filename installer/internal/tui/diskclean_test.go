@@ -251,16 +251,15 @@ func diskCleanerCursorOnItem(t *testing.T, m Model, itemID string) Model {
 	return m
 }
 
-// diskCleanerCursorOn puts the cursor on the first row with an action.
+// diskCleanerCursorOn asserted that a press had a row to rest the cursor on. The
+// presses that are about neither a tool nor a finding are the footer's now, so the
+// helper asserts the phase offers the press instead: a key that would do nothing
+// still fails here, on the same list the footer is drawn from.
 func diskCleanerCursorOn(t *testing.T, m Model, action diskCleanAction) Model {
 	t.Helper()
-	for index, row := range m.diskCleanRows() {
-		if row.action == action {
-			m.Cursor = index
-			return m
-		}
+	if !m.diskCleanerOffers(action) {
+		t.Fatalf("this phase does not offer action %v; it offers %v", action, m.diskCleanerActions())
 	}
-	t.Fatalf("no row stands for action %v", action)
 	return m
 }
 
@@ -296,34 +295,37 @@ func diskCleanerWithSelection(t *testing.T) Model {
 	return m
 }
 
-// TestDiskCleanerRowsDeclareTheKeyThatRunsThem pins the key grammar on this screen
-// (odd/tasks/key-grammar.md): every row that acts where it stands carries the key
-// that runs it, the footer names the same key while the row is offered, Enter runs
-// none of them, and Space is only ever a switch's key.
-func TestDiskCleanerRowsDeclareTheKeyThatRunsThem(t *testing.T) {
+// TestDiskCleanerFooterCarriesEveryPressAndTheListCarriesNone pins the key grammar on
+// this screen after its list became the grammar's card menu: a heading is a divider and
+// a finding's row is a switch, so no row carries a command key any more. Every press is
+// the footer's, the footer names exactly the presses this phase offers, Enter runs none
+// of them, Space is only ever a switch's key, and each press really acts when pressed.
+func TestDiskCleanerFooterCarriesEveryPressAndTheListCarriesNone(t *testing.T) {
 	cases := []struct {
 		name   string
 		action diskCleanAction
 		build  func(t *testing.T) Model
-		// footer is the hint the legend has to carry while this row is on screen.
+		// footer is the hint the legend has to carry while this press is offered.
 		footer string
 	}{
-		{"the scan row", diskCleanActionScan, func(t *testing.T) Model {
+		{"the scan", diskCleanActionScan, func(t *testing.T) Model {
 			m, _ := diskCleanerModel(t)
 			m.Width, m.Height = 200, 80
 			return m
 		}, "[s] scan"},
-		{"a finding's switch", diskCleanActionItem, diskCleanerWithFinding, "[Space] select or drop"},
-		{"the dry run's row", diskCleanActionPreview, diskCleanerWithSelection, "[p] preview"},
-		{"the confirmation's row", diskCleanActionConfirm, func(t *testing.T) Model {
+		{"a finding's switch", diskCleanActionItem, func(t *testing.T) Model {
+			return diskCleanerCursorOnItem(t, diskCleanerWithFinding(t), "store")
+		}, "[Space] select or drop"},
+		{"the dry run", diskCleanActionPreview, diskCleanerWithSelection, "[p] preview"},
+		{"the confirmation", diskCleanActionConfirm, func(t *testing.T) Model {
 			return diskCleanerWithSelection(t).startDiskCleanPreview()
 		}, "[c] clean"},
-		{"the project directory's row", diskCleanActionAddRoot, func(t *testing.T) Model {
+		{"the project directory", diskCleanActionAddRoot, func(t *testing.T) Model {
 			m := diskCleanerWithSelection(t)
 			m.DiskClean.Cwd = filepath.Join(t.TempDir(), "project")
 			return m
 		}, "[d] add the project directory"},
-		{"the forgetting row", diskCleanActionForgetRoot, func(t *testing.T) Model {
+		{"forgetting it", diskCleanActionForgetRoot, func(t *testing.T) Model {
 			m := diskCleanerWithSelection(t)
 			m.DiskClean.ProjectRoots = []string{"/home/probe/apps/app"}
 			return m
@@ -347,58 +349,111 @@ func TestDiskCleanerRowsDeclareTheKeyThatRunsThem(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := tc.build(t)
-			m = diskCleanerCursorOn(t, m, tc.action)
-			row := m.diskCleanRows()[m.Cursor]
-			key := diskCleanRowKey(row.label)
-			if key == "" {
-				t.Fatalf("the row %q carries no mark, so nothing on it says what presses it", row.label)
-			}
-
-			switch key {
-			case " ":
-				// A switch shows the state Space turns over.
-				if !strings.HasPrefix(row.label, diskCleanSwitchOffMark) && !strings.HasPrefix(row.label, diskCleanSwitchOnMark) {
-					t.Errorf("the row %q is pressed with Space but does not show the state it holds", row.label)
-				}
-			case "esc":
-				if !strings.HasPrefix(row.label, diskCleanBackMark) {
-					t.Errorf("the row %q is pressed with Escape but carries no arrow saying so", row.label)
-				}
-			case "j", "k", "h", "l":
-				t.Errorf("the row %q runs on %q, which is a movement key", row.label, key)
-			default:
-				if !strings.HasPrefix(row.label, "["+key+"] ") {
-					t.Errorf("the row %q declares %q, want the key written on the row", row.label, key)
-				}
-			}
-
 			before := diskCleanerGrammarState(m)
+			// Space is the one press a row carries: it is the finding's switch, and the
+			// footer names it only where a finding's row can hold a mark.
+			if tc.action != diskCleanActionItem && !m.diskCleanerOffers(tc.action) {
+				t.Fatalf("this phase does not offer %v; it offers %v", tc.action, m.diskCleanerActions())
+			}
+
+			// The list is the findings and their headings: the only key a row declares
+			// from now on is the switch a finding carries, and Space is that key.
+			for _, row := range m.diskCleanRows() {
+				if row.action == diskCleanActionGroup {
+					continue
+				}
+				if key := diskCleanRowKey(row.label); key != "" && key != " " {
+					t.Errorf("the row %q still carries the command key %q; the presses are the footer's", row.label, key)
+				}
+				if !strings.HasPrefix(row.label, diskCleanMarkOff) && !strings.HasPrefix(row.label, diskCleanMarkOn) {
+					t.Errorf("the row %q does not show the state Space turns over", row.label)
+				}
+			}
+			if tc.action == diskCleanActionItem {
+				// Its key is Space, and the switch is the row's own state.
+				if view := diskCleanWholeView(m); !strings.Contains(view, tc.footer) {
+					t.Errorf("the footer does not name the switch (%q):\n%s", tc.footer, view)
+				}
+				marked, _ := diskCleanerPress(t, m, " ")
+				if diskCleanerGrammarState(marked) == before {
+					t.Errorf("Space on a finding's row marked nothing")
+				}
+				return
+			}
+
 			// Enter opens a screen, a row's detail or a value, and this screen has none
 			// of the three: on any row here it runs nothing.
 			entered, cmd := diskCleanerPress(t, m, "enter")
 			if cmd != nil || diskCleanerGrammarState(entered) != before {
-				t.Errorf("Enter ran the row %q: %s became %s", row.label, before, diskCleanerGrammarState(entered))
+				t.Errorf("Enter ran %v: %s became %s", tc.action, before, diskCleanerGrammarState(entered))
 			}
-			// Space is a switch's key and nothing else's, so a row that is not a switch
-			// ignores it. Each press starts from the same model.
-			if key != " " {
+			// Space is a switch's key and nothing else's.
+			if tc.action != diskCleanActionItem {
 				if spaced, cmd := diskCleanerPress(t, m, " "); cmd != nil || diskCleanerGrammarState(spaced) != before {
-					t.Errorf("Space acted on the row %q, which is not a switch: %s became %s",
-						row.label, before, diskCleanerGrammarState(spaced))
+					t.Errorf("Space acted on %v, which is not a switch: %s became %s",
+						tc.action, before, diskCleanerGrammarState(spaced))
 				}
 			}
 
+			key := ""
+			for _, action := range m.diskCleanerActions() {
+				if action.Action == tc.action {
+					key = strings.TrimSuffix(strings.TrimPrefix(action.Hint.keys, "["), "]")
+				}
+			}
+			if key == "" {
+				t.Fatalf("%v has no key in the footer", tc.action)
+			}
+			if key == "Esc" {
+				key = "esc"
+			}
 			pressed, cmd := diskCleanerPress(t, m, key)
 			if cmd == nil && diskCleanerGrammarState(pressed) == before {
-				t.Errorf("the row %q carries %q and pressing it changed nothing", row.label, key)
+				t.Errorf("%v carries %q and pressing it changed nothing", tc.action, key)
 			}
 
-			// The legend names the same key while the row is offered, so the row and the
-			// footer cannot disagree about what presses it.
+			// The legend names the same key while the press is offered, so the footer
+			// and the handler cannot disagree about what presses it.
 			if view := diskCleanWholeView(m); !strings.Contains(view, tc.footer) {
-				t.Errorf("the footer does not name the key of %q (%q):\n%s", row.label, tc.footer, view)
+				t.Errorf("the footer does not name the key of %v (%q):\n%s", tc.action, tc.footer, view)
 			}
 		})
+	}
+}
+
+// TestDiskCleanerListCarriesTheHeadingAndTheFinding pins the card menu's two row
+// kinds: a heading per tool or project, and a finding under it with its state in the
+// gutter and what it holds beside what removing it would cost on the second line.
+func TestDiskCleanerListCarriesTheHeadingAndTheFinding(t *testing.T) {
+	m, _ := diskCleanerModel(t)
+	m.Width, m.Height = 160, 50
+	store := filepath.Join(t.TempDir(), "store")
+	writeTestFile(t, filepath.Join(store, "data.bin"), 1024)
+	m.DiskClean.Items = []diskclean.Item{
+		diskCleanRemovalItem("store", "The store", store, 1024),
+		diskCleanToolItem("npm-cache", "The npm cache", "npm", 2<<20),
+	}
+	m.DiskClean.Scanned = true
+	m.DiskClean.Selection = diskclean.Selection{"store": true}
+
+	view := diskCleanWholeView(m)
+	for _, want := range []string{
+		"npm — 1 finding", // the tool's own heading, drawn as the card's divider
+		"The npm cache",   // the finding's title
+		"2.0 MiB",         // what it holds
+		"safe to rebuild", // and what removing it would cost
+		diskCleanMarkOn,   // the state of the marked one
+		diskCleanMarkOff,  // and of the unmarked one
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the list does not show %q:\n%s", want, view)
+		}
+	}
+	// The presses are the footer's: none of them is a row of the card any more.
+	for _, command := range []string{"[s] Scan again", "[p] Preview the", "[d] Add the project directory", "[s] Scan for development caches"} {
+		if strings.Contains(view, command) {
+			t.Errorf("the list still draws the press %q:\n%s", command, view)
+		}
 	}
 }
 
@@ -547,21 +602,15 @@ func TestDiskCleanerPreviewComesBeforeAnythingRuns(t *testing.T) {
 		t.Errorf("the preview removed the store: %v", err)
 	}
 
-	rows := m.diskCleanRows()
-	confirm, cancel := -1, -1
-	for index, row := range rows {
-		switch row.action {
-		case diskCleanActionConfirm:
-			confirm = index
-		case diskCleanActionCancelPreview:
-			cancel = index
+	// The confirmation and the way out are the footer's presses now, and the list is
+	// the plan's findings.
+	for _, action := range []diskCleanAction{diskCleanActionConfirm, diskCleanActionCancelPreview} {
+		if !m.diskCleanerOffers(action) {
+			t.Fatalf("the preview does not offer %v; it offers %v", action, m.diskCleanerActions())
 		}
 	}
-	if confirm < 0 || cancel < 0 {
-		t.Fatalf("the preview offers %v, want a confirmation and a way back", diskCleanRowLabels(rows))
-	}
-	if confirm > cancel {
-		t.Errorf("the confirmation is below the way back in %v", diskCleanRowLabels(rows))
+	if labels := diskCleanRowLabels(m.diskCleanRows()); !strings.Contains(strings.Join(labels, " "), "The npm cache") {
+		t.Errorf("the preview does not list the planned finding: %v", labels)
 	}
 }
 
@@ -749,6 +798,7 @@ func TestDiskCleanerAddsAndForgetsTheDirectoryItWasStartedFrom(t *testing.T) {
 // not inflate the promise the row makes.
 func TestDiskCleanerRowCountsTheWorkNotTheSelection(t *testing.T) {
 	m, _ := diskCleanerModel(t)
+	m.Width, m.Height = 160, 50
 	store := filepath.Join(t.TempDir(), "store")
 	writeTestFile(t, filepath.Join(store, "data.bin"), 1024)
 	m.DiskClean.Items = []diskclean.Item{
@@ -765,18 +815,13 @@ func TestDiskCleanerRowCountsTheWorkNotTheSelection(t *testing.T) {
 	m = diskCleanerCursorOn(t, m, diskCleanActionPreview)
 	m, _ = diskCleanerPress(t, m, diskCleanPreviewKey)
 
-	rows := m.diskCleanRows()
-	confirm := -1
-	for index, row := range rows {
-		if row.action == diskCleanActionConfirm {
-			confirm = index
+	// What the confirmation would run is the card's count now: the list is the
+	// findings, and the presses are the footer's.
+	card := diskCleanFlatView(m)
+	for _, want := range []string{"Would run 1 item", "Would not 1 item", "Selected 2 items"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the preview's card does not say %q:\n%s", want, card)
 		}
-	}
-	if confirm < 0 {
-		t.Fatalf("the preview rows are %v", diskCleanRowLabels(rows))
-	}
-	if !strings.Contains(rows[confirm].label, "1 item") {
-		t.Errorf("the confirmation row promises %q, want one item", rows[confirm].label)
 	}
 	if len(m.DiskClean.Plan.Items) != 2 {
 		t.Fatalf("the plan holds %d items, want both selected findings", len(m.DiskClean.Plan.Items))
@@ -832,7 +877,10 @@ func diskCleanFlatView(m Model) string {
 	plain := ansiEscape.ReplaceAllString(m.View(), "")
 	l := layoutFor(m)
 	text := plain
-	if l.TwoColumn && m.sectionDetailPane() {
+	// A screen whose list is empty draws one card across the composition instead of a
+	// body and a column, so there is no right column to read: the whole frame is the
+	// card, and the whole frame is what these assertions read.
+	if l.TwoColumn && m.sectionDetailPane() && len(m.diskCleanRows()) > 0 {
 		start := viewPaddingCols + l.Leading + l.Left + layoutGutter
 		var detail []string
 		for _, line := range strings.Split(plain, "\n") {
@@ -913,7 +961,7 @@ func TestUtilitiesSectionOffersTheDevelopmentCacheCleaner(t *testing.T) {
 	// what the job does.
 	screen := installerFrameModel(t, ScreenDiskCleaner)
 	screen.Width, screen.Height = 120, 50
-	if !strings.Contains(diskCleanFlatView(screen), "measures each store without removing anything") {
+	if !strings.Contains(diskCleanFlatView(screen), "a scan measures and removes nothing") {
 		t.Errorf("the screen does not say what the job does:\n%s", diskCleanFlatView(screen))
 	}
 	offered, flat := false, utilitiesPanelFlat(t, m)
@@ -959,11 +1007,11 @@ func TestDiskCleanerScreenStatesWhatItWillNotDo(t *testing.T) {
 	view := diskCleanFlatView(m)
 	for _, want := range []string{
 		"never deleted file by file",
-		"engine's own prune command",
-		"Nothing is quarantined",
-		"never marked for you",
+		"manager's own prune command",
+		"nothing is quarantined",
+		"never for you",
 		"does not shrink on its own",
-		"no telemetry",
+		"no network call",
 		"Escape stops either one",
 	} {
 		if !strings.Contains(view, want) {
@@ -1063,17 +1111,23 @@ func TestDiskCleanerPreviewRendersEachCommandAndEachRefusal(t *testing.T) {
 		t.Fatalf("the preview listed %d items, want all three: %v", len(checked), checked)
 	}
 
-	// The preview promises that nothing has run yet, and the row for every planned
-	// item says what the confirmation would do to it.
+	// The preview's rows are the findings themselves -- the same mark, name and size
+	// the list carries -- and what the confirmation would do is the card's, one row of
+	// it for the finding under the cursor.
 	rows := diskCleanRowLabels(m.diskCleanRows())
 	joined := strings.Join(rows, " | ")
-	if !strings.Contains(joined, "would run npm cache clean --force") ||
-		!strings.Contains(joined, "would remove "+store) ||
-		!strings.Contains(joined, "nothing would run") {
-		t.Errorf("the preview rows do not carry each item's action: %s", joined)
+	for _, want := range []string{"The npm cache", "4.0 KiB", "safe to rebuild", diskCleanMarkOn} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the preview rows do not carry %q: %s", want, joined)
+		}
+	}
+	for _, command := range []string{"would run", "would remove", "nothing would run"} {
+		if strings.Contains(joined, command) {
+			t.Errorf("the preview rows still carry the planned action %q: %s", command, joined)
+		}
 	}
 	view := diskCleanFlatView(m)
-	for _, want := range []string{"Preview: nothing has run yet. 2 items would run and 1 item would not"} {
+	for _, want := range []string{"Nothing run", "the preview removes nothing", "Would run 2 items", "Would not 1 item"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the preview does not say %q:\n%s", want, view)
 		}
@@ -1117,9 +1171,15 @@ func TestDiskCleanerShowsWhyEachFindingWasFoundAndWhereItIs(t *testing.T) {
 	m = diskCleanerCursorOnItem(t, m, "npm-cache")
 	card := diskCleanFlatView(m)
 	for _, want := range []string{
-		"The npm cache — regenerable cache — safe to rebuild",
-		"Holds 4.0 MiB on disk, 6.0 MiB in contents, 12 files (walked).",
-		"Found because npm is on PATH and its cache directory exists.",
+		"The npm cache",
+		"regenerable cache",
+		"safe to rebuild",
+		"4.0 MiB",
+		"6.0 MiB",
+		"12",
+		"walked",
+		"Found because",
+		"npm is on PATH and its cache directory exists",
 		"the packages npm downloaded and unpacked",
 	} {
 		if !strings.Contains(card, want) {
@@ -1131,19 +1191,22 @@ func TestDiskCleanerShowsWhyEachFindingWasFoundAndWhereItIs(t *testing.T) {
 	// column's business. Comparing the text without its spaces checks the path
 	// itself rather than the width it happened to be drawn in.
 	path := filepath.Join(home, ".npm", "_cacache")
-	if !strings.Contains(strings.ReplaceAll(card, " ", ""), strings.ReplaceAll("On disk: "+path, " ", "")) {
+	if !strings.Contains(strings.ReplaceAll(card, " ", ""), strings.ReplaceAll(path, " ", "")) {
 		t.Errorf("the card of the npm cache does not say where it is (%q):\n%s", path, card)
 	}
-	if strings.Contains(card, "Inside the engine: volumes") {
+	if strings.Contains(card, "Inside engine") && strings.Contains(card, "volumes") {
 		t.Errorf("the npm cache card carries the container objects of another finding:\n%s", card)
 	}
 
 	m = diskCleanerCursorOnItem(t, m, "docker-volumes")
 	volumes := diskCleanFlatView(m)
 	for _, want := range []string{
-		"The container volumes — persistent volumes — delicate",
-		"Holds 1.0 GiB on disk (tool-reported): volumes.",
-		"docker is on PATH and answered `system df` for the volumes.",
+		"The container volumes",
+		"persistent volumes",
+		"delicate",
+		"1.0 GiB",
+		"tool-reported",
+		"docker is on PATH and answered `system df` for the volumes",
 		"data the engine owns and may not be reproducible",
 	} {
 		if !strings.Contains(volumes, want) {
@@ -1192,13 +1255,13 @@ func TestDiskCleanerCardSaysWhyAnUnmeasuredFindingIsNotAZero(t *testing.T) {
 	}
 
 	m = diskCleanerCursorOnItem(t, m, "unreadable")
-	if view := diskCleanFlatView(m); !strings.Contains(view, "Its size could not be measured: permission denied.") {
+	if view := diskCleanFlatView(m); !strings.Contains(view, "size could not be measured: permission denied") {
 		t.Errorf("an unreadable store does not carry its reason:\n%s", view)
 	}
 
 	m = diskCleanerCursorOnItem(t, m, "cut-short")
 	view := diskCleanFlatView(m)
-	for _, want := range []string{"lower bound rather than the whole store", "counted once and listed here as shared"} {
+	for _, want := range []string{"the walk stopped at its own ceiling", "counted under another finding too"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("a walk cut short does not say %q:\n%s", want, view)
 		}
@@ -1240,7 +1303,7 @@ func TestDiskCleanerResultsRenderEachOutcomeAndTheFilesystemNumber(t *testing.T)
 		"The store: 4.0 MiB came back",
 		"The container images: the tool reported 8.0 MiB reclaimed",
 		"The pip cache: refused before anything was removed",
-		"gained 12.0 MiB around the run",
+		"12.0 MiB, measured before the first command and after the last",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the result screen does not say %q:\n%s", want, view)

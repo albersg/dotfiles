@@ -121,11 +121,28 @@ func (m Model) renderSectionWide(l layout, description func(Model) []string, scr
 			listRows++
 		}
 	}
+	if m.Screen == ScreenDiskCleaner {
+		// The disk cleaner's list is a card menu (below): its headings are dividers
+		// and its rows are findings, so the count the header reports is the findings'
+		// and not the headings'.
+		listRows = 0
+		for _, row := range m.diskCleanRows() {
+			if row.item >= 0 {
+				listRows++
+			}
+		}
+	}
 	if listRows == 0 {
 		actions := append(append([]string{}, entries...), tailRows...)
 		body = centeredBody(m.sectionWideReportCard(paragraphs, screenNotice, actions, m.Cursor, l.Composition, budget), l)
 	} else {
-		left, first, last := m.sectionWideListCard(entries, tailRows, l.Left, budget)
+		var left []string
+		var first, last int
+		if m.Screen == ScreenDiskCleaner {
+			left, first, last = m.sectionWideDiskCleanerCard(l.Left, budget)
+		} else {
+			left, first, last = m.sectionWideListCard(entries, tailRows, l.Left, budget)
+		}
 		start, end = first, last
 		right := m.sectionWideDetailCard(description, screenNotice, l.Right, budget)
 		body = composeColumns(left, right, l)
@@ -139,6 +156,9 @@ func (m Model) renderSectionWide(l layout, description func(Model) []string, scr
 	vital := ""
 	if listRows > 0 && end-start < entryTotal {
 		vital = scrollVital("Showing", start+1, end, entryTotal)
+	}
+	if m.Screen == ScreenDiskCleaner {
+		vital = m.diskCleanerRangeVital(start, end)
 	}
 	if suffix := m.sectionVitalSuffix(); suffix != "" {
 		if vital == "" {
@@ -156,6 +176,106 @@ func (m Model) renderSectionWide(l layout, description func(Model) []string, scr
 // reference's "System Utilities" card sits under its "Utilities" header.
 func (m Model) sectionWideTitle() string {
 	return m.GetScreenTitle()
+}
+
+// sectionWideDiskCleanerCard draws the disk cleaner's list as the grammar's card
+// menu: one divider per tool or project, and one two-line row per finding under it
+// -- the state mark in the gutter, the name on the title line and what it holds
+// with what removing it would cost on the muted line under it. The presses that are
+// about neither a tool nor a finding live in the footer (diskCleanerActions), which
+// is what `[s]`, `[p]`, `[d]`, `[f]`, `[c]` and Escape are: the list is the findings
+// and nothing else.
+//
+// It returns the card and the slice of the list it drew, so the header can name the
+// same range the card shows. The arithmetic is the section renderer's own window,
+// measured in the rows each entry really costs, with a heading counted as the one
+// row its divider spends.
+func (m Model) sectionWideDiskCleanerCard(width, budget int) ([]string, int, int) {
+	content := cardContentWidth(width)
+	// The card spends its two borders and the rule under the chip before its body.
+	room := max(1, budget-cardChromeRows)
+	rows := m.diskCleanRows()
+	if len(rows) == 0 {
+		return nil, 0, 0
+	}
+
+	heights := make([]int, len(rows))
+	for i, row := range rows {
+		heights[i] = sectionRowHeight(row.label, content)
+		if row.action == diskCleanActionGroup {
+			heights[i] = 1 // the divider the heading becomes
+		}
+	}
+	start, end := sectionEntryWindow(heights, m.Cursor, room)
+	if start > 0 || end < len(rows) {
+		notes := 0
+		if start > 0 {
+			notes++
+		}
+		if end < len(rows) {
+			notes++
+		}
+		start, end = sectionEntryWindow(heights, m.Cursor, max(1, room-notes))
+	}
+
+	var groups []cardGroup
+	if start > 0 {
+		groups = append(groups, cardGroup{Lines: []string{MutedStyle.Render(fmt.Sprintf("↑ %d more above", start))}})
+	} else if len(rows) > 0 && rows[0].action == diskCleanActionGroup {
+		// The card's own rule under the chip is where the first group's divider would go,
+		// so the first heading would be the one title the card never draws. An empty group
+		// in front of it moves every heading onto a divider of its own, which is what
+		// makes the first tool's name visible at all; clipCardGroups keeps it because its
+		// one row is the blank the card's first rule leaves under the chip.
+		groups = append(groups, cardGroup{Lines: []string{""}})
+	}
+	for i := start; i < end; i++ {
+		row := rows[i]
+		if row.action == diskCleanActionGroup {
+			groups = append(groups, cardGroup{Title: row.label})
+			continue
+		}
+		if len(groups) == 0 {
+			// The window opened on a finding whose heading is above it: the note at the
+			// top already says what was hidden, so the group has no title to draw.
+			groups = append(groups, cardGroup{})
+		}
+		at := len(groups) - 1
+		groups[at].Lines = append(groups[at].Lines, m.diskCleanerRowLines(row, content, i == m.Cursor)...)
+	}
+	if end < len(rows) {
+		if len(groups) == 0 {
+			groups = append(groups, cardGroup{})
+		}
+		at := len(groups) - 1
+		groups[at].Lines = append(groups[at].Lines, MutedStyle.Render(fmt.Sprintf("↓ %d more below", len(rows)-end)))
+	}
+
+	groups = clipCardGroups(groups, room, content)
+	if len(groups) == 0 {
+		return nil, start, end
+	}
+	return cardGroups(m.sectionWideTitle(), "", width, groups), start, end
+}
+
+// diskCleanerRowLines is one finding as a card row: the state mark in the gutter,
+// the name on the title line, and what it holds with what removing it would cost on
+// the muted line under it. A finding in the preview is one the plan already holds,
+// so its mark says so rather than repeating a selection the confirmation is about.
+func (m Model) diskCleanerRowLines(row diskCleanRow, width int, selected bool) []string {
+	if row.item < 0 || row.item >= len(m.DiskClean.Items) {
+		return sectionRowLines(row.label, width, selected)
+	}
+	item := m.DiskClean.Items[row.item]
+	mark := diskCleanItemMark(m.DiskClean.Selection.Has(item.ID))
+	if m.DiskClean.Phase == diskCleanPreview {
+		mark = diskCleanMarkOn
+	}
+	return cardRowLines(cardRow{
+		Icon:     mark,
+		Title:    item.Title,
+		Subtitle: diskCleanItemSubtitle(item),
+	}, width, selected)
 }
 
 // sectionWideListCard draws the list's card: the rows the key handler matches,
@@ -253,6 +373,15 @@ func (m Model) sectionWideDetailCard(description func(Model) []string, screenNot
 	if strings.TrimSpace(screenNotice) != "" {
 		notice = mutedLines(wrapText(screenNotice, content, 0))
 	}
+
+	// A screen whose detail is divided into areas draws the card's own dividers
+	// between them (facts_cards.go), so its body is measured in groups rather than
+	// in lines: a divider is a row the card spends, and a card measured without it
+	// would draw one row past its budget.
+	if groups, ok := m.sectionScreenGroups(content); ok {
+		return m.sectionWideGroupsDetailCard(groups, description, screenNotice, notice, width, budget)
+	}
+
 	fixed := cardChromeRows
 	if len(notice) > 0 {
 		fixed += grammarGap + len(notice)
@@ -287,6 +416,74 @@ func (m Model) sectionWideDetailCard(description func(Model) []string, screenNot
 	return card(m.sectionPaneTitle(), "", width, body)
 }
 
+// sectionWideGroupsDetailCard is sectionWideDetailCard for a detail divided into
+// areas: the groups as they arrive, the rows the card could not fit cut from the
+// last area first (clipCardGroups says how many it dropped), and the screen's notice
+// under a blank row inside the last group, where the prose path puts it too.
+func (m Model) sectionWideGroupsDetailCard(groups []cardGroup, description func(Model) []string, screenNotice string, notice []string, width, budget int) []string {
+	content := cardContentWidth(width)
+	fixed := cardChromeRows
+	if len(notice) > 0 {
+		fixed += grammarGap + len(notice)
+	}
+
+	// The same stability rule as the prose path: the card is as tall as the tallest
+	// reading any row the cursor can rest on draws, dividers included.
+	limit := max(1, budget-fixed)
+	room := 1
+	for cursor := range m.GetCurrentOptions() {
+		probe := m
+		probe.Cursor = cursor
+		probeGroups, ok := probe.sectionScreenGroups(content)
+		if !ok {
+			continue
+		}
+		room = max(room, min(limit, cardGroupRows(probeGroups)))
+	}
+
+	groups = clipCardGroups(groups, room, content)
+	if len(groups) == 0 {
+		return nil
+	}
+
+	// The card holds one height at every cursor position, so the rows this reading
+	// does not need are blank rows at the end of its last area -- never a new area,
+	// which would draw a divider over nothing.
+	if spent := cardGroupRows(groups); spent < room {
+		last := &groups[len(groups)-1]
+		for i := spent; i < room; i++ {
+			last.Lines = append(last.Lines, "")
+		}
+	}
+
+	if len(notice) > 0 {
+		last := &groups[len(groups)-1]
+		if len(last.Lines) > 0 {
+			last.Lines = append(last.Lines, "")
+		}
+		last.Lines = append(last.Lines, notice...)
+	}
+	_ = description
+	_ = screenNotice
+	return cardGroups(m.sectionPaneTitle(), "", width, groups)
+}
+
+// cardGroupRows is how many rows a card spends on the groups it is given: the rows
+// themselves, and the divider the card draws above every group after a non-empty one.
+func cardGroupRows(groups []cardGroup) int {
+	rows := 0
+	for _, group := range groups {
+		if len(group.Lines) == 0 {
+			continue
+		}
+		if rows > 0 {
+			rows++ // the divider above this area
+		}
+		rows += len(group.Lines)
+	}
+	return rows
+}
+
 // sectionDetailBody is the detail one cursor position draws: a screen whose
 // detail is a list of facts draws them as the grammar's rows (facts_cards.go)
 // -- the label that names the fact at its fixed column and the value wrapped
@@ -314,6 +511,13 @@ func (m Model) sectionWideReportCard(paragraphs []string, screenNotice string, t
 	// verdict in its gutter. The card itself is this one, so only the body changes
 	// shape and the way back stays where it was.
 	if groups, ok := m.sectionReportGroups(content); ok {
+		return m.sectionWideGroupsCard(groups, screenNotice, tail, cursor, width, budget)
+	}
+	// A section screen with no list to walk -- the disk cleaner while it scans, or
+	// after a run -- draws its facts across the composition instead of its prose: the
+	// screen has no rows for the same reason the reports have none, and the detail it
+	// has is the same list of facts the two-column frame draws beside a list.
+	if groups, ok := m.sectionScreenGroups(content); ok {
 		return m.sectionWideGroupsCard(groups, screenNotice, tail, cursor, width, budget)
 	}
 

@@ -1932,3 +1932,85 @@ move.
 Validation was the short loop: `gofmt -l` clean, `go vet ./internal/tui` clean, the
 update center's 48 tests, the frame/section-wide/capture guards (1195), and every
 golden (86, the new one included). No full suite, no preflight, no commit.
+
+L34. T12 landed in the tree (uncommitted): the installer's detail is rows, not
+paragraphs. The user's two reports -- the "Diagnose WSL" wall of text and then the
+"Development caches" screen -- asked for the same rule: nowhere in the installer
+should there be a lot of text, and where a datum cannot become a row it keeps one
+short sentence with the reason in the code.
+
+**The mechanism.** `sectionScreenAreas` (facts_cards.go) is the registry: a screen's
+detail is `[]factArea` -- the name the card's divider carries and the rows in it --
+and `sectionScreenFacts` is its flatten, so the compact body's prose (factProse) and
+the wide card (factLines, one group per area) read one list. `sectionWideDetailCard`
+draws the groups through `cardGroups`, so a long detail is a set of short sections
+rather than one column of facts; the card's height is still the tallest reading any
+cursor position draws, measured in rows *and dividers* (`cardGroupRows`), so the
+composition does not move as the cursor walks.
+
+**The WSL advisor.** Its environment is now five areas of short rows -- Instance
+(runtime, distro, kernel, processors, memory, swap), Storage (distribution, project
+disk, drives, mounts), Resolver, Windows (.wslconfig and its three keys, an absent
+key named as such), Elsewhere (the shell-startup pointer) -- plus This report
+(read-only, what the copy writes), Not read (one row per reading that did not
+happen) and Finding. The finding's title, severity, origin and scope were one value
+("… — Notice (documented behaviour; changed inside this distribution, and applied
+only after WSL restarts it).") and are four rows; its evidence, why, benefit and
+what-to-do are one labelled row each.
+
+**The disk cleaner, first half.** `diskCleanerAreas` splits its detail into Under the
+cursor, Preview, Measured, Marked, The scope and What it will not do: the sizes (on
+disk, contents, files, source), the reason each finding was found, its paths, its
+reconstruction cost, the totals and their caveats, the selection split by risk, the
+project directories, and the engine/WSL/privacy promises -- each one row.
+
+**The disk cleaner, second half: the list is the grammar's card menu.** The headings
+became the card's dividers, each finding a two-line row (a one-cell state mark in the
+gutter, the name on the title line, the size and what removing it costs on the muted
+line), the cursor's row filled; the row under the cursor is drawn by the same
+`cardRowLines` as every other list. The presses are the footer's: `[s]`, `[p]`,
+`[d]`, `[f]`, `[c]`, Space on a finding, and Escape. `diskCleanRows` is the list
+(headings and findings) and `diskCleanerActions` is the press list the handler and the
+footer both read, so a key cannot be advertised on a state that does not accept it;
+the cursor no longer rests on a heading, and `diskCleanFinding` falls back to the
+first finding so the card never goes blank on one.
+
+**The rest of the audit.** The doctor and its confirmation, the network diagnosis
+(every state, with the saved report kept as one labelled block because it is a file's
+own lines), and the WSL resources, benchmark and migration screens are areas of short
+rows too. The benchmark now gives each operation its own row under its target's
+divider, and the migration preview gives each warning and each by-hand command its
+own.
+
+**What is still prose, and why.** The advisor's finding argument (`Why it matters`,
+`Benefit`, `What to do`) is the model's own measured claim and stays full length: it
+is one labelled row each, but cutting it to fit a row would either drop a fact or
+invent a shorter one. `factArgumentLabels` names those three labels in the guard so
+the exception cannot spread. The shell startup's explanation, the old update screen
+and the theme picker still write sentences: their prose is the methodology and the
+plan, not a set of values, and they are the next slice.
+
+**Floor and arithmetic.** `diskCleanCardFloor` is 10 (it was 7) because a row costs
+more lines than a sentence did and the evidence may not be cut; the list windows and
+says how many findings it hid, and the header's range counts findings, not headings
+(`diskCleanerRangeVital`). Raising the floor exposed a real bug in the shared band
+arithmetic: a detail that only just fitted lost the row the clamp had already taken,
+so `sectionBandsFor` now gives up the gap and the detail together when they do not
+fit the available rows.
+
+Guards: `TestEveryConvertedRowIsALabelAndAShortValue` (a row carries its label, its
+value fits two lines of the value column, and only a finding's argument is exempt),
+`TestTheDetailCardDividesTheConvertedScreensByArea` (the advisor's dividers are
+named), `TestDiskCleanerListIsACardMenuAndItsPressesAreTheFooters` (the headings, the
+two-line finding rows, no press drawn as a row, every press in the footer),
+`TestDiskCleanerFooterCarriesEveryPressAndTheListCarriesNone` (each press is offered,
+named and acts; Enter runs nothing; Space is only a finding's switch) and
+`TestDiskCleanerListCarriesTheHeadingAndTheFinding`. Goldens updated:
+TestWSLAdvisorGolden, TestWSLResourcesGolden, TestDoctorGolden, TestDoctorWideGolden,
+TestDoctorFixGolden, TestNetworkDiagnosticsWideGolden, TestDiskCleanerGolden,
+TestDiskCleanerWideGolden; new: TestWSLAdvisorWideGolden, TestDiskCleanerPreviewWideGolden.
+
+Validation was the short loop: `gofmt -l` and `go vet ./internal/tui` clean, the
+focused tests (WSL, SSH, doctor, network, disk cleaner, section-wide, frame,
+utilities, goldens) and then the whole `internal/tui` package green (504 s). No
+preflight, no captures, no commit.

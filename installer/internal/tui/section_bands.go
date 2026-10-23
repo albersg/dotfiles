@@ -281,6 +281,16 @@ func (m Model) sectionBandsFor(width int, hints []installerHint, detailLines, me
 		if b.Detail > 0 {
 			b.Gap = 1
 		}
+		// A reservation that only just fits leaves no room for the blank row between
+		// the detail and the list, and the surplus arithmetic below cannot give back a
+		// row it has already clamped away: the gap is given up here, and the detail
+		// with it, so the bands still add up to the body exactly.
+		if b.Detail+b.Gap > available {
+			b.Detail = max(0, available-b.Gap)
+			if b.Detail == 0 {
+				b.Gap = 0
+			}
+		}
 	} else {
 		// As-needed prose: the list keeps the rows it needs and the prose takes what
 		// is left, never below its floor. A frame too short for both keeps the

@@ -457,7 +457,7 @@ func TestSSHTestScreenSaysWhatItWillRunBeforeItRuns(t *testing.T) {
 	m.SSH.Testing = false
 
 	body := strings.Join(m.sshTestDescription(), "\n")
-	for _, want := range []string{"Nothing is sent anywhere until that press", "Host keys are verified", "no password is ever prompted for"} {
+	for _, want := range []string{"Nothing is sent anywhere until that press", "Host keys", "verified", "never prompted for"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the test screen does not state %q:\n%s", want, body)
 		}
@@ -676,7 +676,7 @@ func TestSSHManagerSaysWhatTheHostCannotDo(t *testing.T) {
 
 	test := sshTestModel(t, ScreenSSHTest)
 	test.SSH.Manager.Caps = sshcfg.Caps{}
-	if body := strings.Join(test.sshTestDescription(), "\n"); !strings.Contains(body, "the ssh client was not found on PATH") {
+	if body := strings.Join(test.sshTestDescription(), "\n"); !strings.Contains(body, "ssh was not found on PATH") {
 		t.Errorf("the test screen offers a test it cannot run:\n%s", body)
 	}
 	if containsRow(test.GetCurrentOptions(), sshRunTestRow) {

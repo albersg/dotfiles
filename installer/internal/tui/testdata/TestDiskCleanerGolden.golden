@@ -1,22 +1,22 @@
 [?25l[?2004h]2;dotfiles Installer                                                                                
-   Utilities                                     Showing 3-5 of 12 · dev build  
+   Utilities                                      Showing 1-1 of 5 · dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   Development caches                                                            
-  The apt package cache — downloads — safe to rebuild                           
-  Holds 120.0 MiB on disk (walked).                                             
-  Found because the apt archives directory exists, but apt-get is not on PATH   
+  Finding: The apt package cache.                                               
+  Risk: safe to rebuild · downloads.                                            
+  On disk: 120.0 MiB.                                                           
+  Measured: walked.                                                             
+  Found because: the apt archives directory exists, but apt-get is not on PATH  
   here.                                                                         
-  On disk:                                                                      
-  /var/cache/apt/archives                                                       
-  … and 45 more                                                                 
+  On disk: /var/cache/apt/archives.                                             
+  Reconstruct: downloaded package archives; apt downloads them again when it    
+  needs them.                                                                   
+  … and 29 more                                                                 
                                                                                 
     apt — 1 finding                                                             
-  ▸ [ ] The apt package cache — 120.0 MiB — safe to rebuild                     
+  ▸ ▢ The apt package cache — 120.0 MiB — safe to rebuild                       
     docker — 1 finding                                                          
-  ────────────────────────────────────────────────────────────────────────────  
-    [p] Preview the 2 items selected                                            
-    [d] Add the project directory /home/testuser/projects                       
-    ← Back                                                                      
+                                                                                
                                                                                 
                                                                                 
   ● Ready ────────────────────────────────────────────────────────────────────  

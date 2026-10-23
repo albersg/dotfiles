@@ -45,20 +45,31 @@ func TestTheScreenDoesNotPromiseWindowsMemoryThePlanDoesNotKeep(t *testing.T) {
 			"pass without measuring anything: widen the set or delete the test")
 	}
 
-	var sentence string
+	// The rule is rows now: the memory fraction, the reserve Windows keeps, and the
+	// floor that decides between them when both cannot be honoured. The test reads
+	// the three rows the screen states rather than one sentence, because the defect
+	// it exists for is a rule that is stated without the one that settles it.
+	var memory, reserve, floor string
 	for _, paragraph := range wslGuardScreenModel(t, wslGuardState{}).wslResourceDescription() {
-		if strings.Contains(paragraph, "Memory is ") {
-			sentence = paragraph
+		switch {
+		case strings.HasPrefix(paragraph, "Memory: "):
+			memory = paragraph
+		case strings.HasPrefix(paragraph, "Windows keeps: "):
+			reserve = paragraph
+		case strings.HasPrefix(paragraph, "Floor: "):
+			floor = paragraph
 		}
 	}
-	if sentence == "" {
-		t.Fatal("the screen no longer states the memory rule at all, so this test measures nothing")
+	if memory == "" || reserve == "" || floor == "" {
+		t.Fatalf("the screen no longer states the memory rule (%q), what Windows keeps (%q) and the floor (%q), so this test measures nothing",
+			memory, reserve, floor)
 	}
 
-	if !strings.Contains(strings.ToLower(sentence), "floor") {
+	if !strings.Contains(strings.ToLower(floor), "half the host") ||
+		!strings.Contains(strings.ToLower(floor), "decides") {
 		t.Errorf("the plan leaves Windows under 4 GiB on ordinary hosts:\n  %s\n"+
-			"and the screen states both rules without the one that decides between them:\n  %s",
-			strings.Join(short, "\n  "), sentence)
+			"and the screen's floor row does not say which rule wins there:\n  %s",
+			strings.Join(short, "\n  "), floor)
 	}
 }
 

@@ -88,6 +88,32 @@ func TestSectionWideKeepsEveryRowAndItsWayBack(t *testing.T) {
 			m.Width, m.Height = 160, 50
 			m.Animating = false
 
+			// The disk cleaner's list is a card menu of headings and findings, and
+			// its presses -- the way back included -- are the footer's (Escape). Its
+			// guard is that every finding the cursor can rest on is drawn with the
+			// marker, and that the footer names the way out.
+			if m.Screen == ScreenDiskCleaner {
+				plain := ansiEscape.ReplaceAllString(m.View(), "")
+				if !strings.Contains(plain, "[Esc] back") {
+					t.Errorf("the disk cleaner does not name the way back in its footer:\n%s", plain)
+				}
+				for cursor, row := range m.diskCleanRows() {
+					if row.item < 0 {
+						continue
+					}
+					moved := m
+					moved.Cursor = cursor
+					plain := ansiEscape.ReplaceAllString(moved.View(), "")
+					if !strings.Contains(plain, grammarMarker) {
+						t.Fatalf("the disk cleaner draws no cursor marker with the cursor on row %d (%q)", cursor, row.label)
+					}
+					if !strings.Contains(plain, m.DiskClean.Items[row.item].Title) {
+						t.Errorf("the disk cleaner does not draw the finding under the cursor (%q):\n%s", row.label, plain)
+					}
+				}
+				return
+			}
+
 			options := m.GetCurrentOptions()
 			if len(options) == 0 {
 				t.Fatalf("%s offers no rows", c.name)

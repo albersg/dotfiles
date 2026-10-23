@@ -3,47 +3,47 @@
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   ╭─ Development caches ───────────────────────────────────────────────╮  ╭─ Details ────────────────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
-  │   [s] Scan again                                                   │  │ The apt package cache — downloads — safe to rebuild                              │  
-  │ ────────────────────────────────────────────────────────────────── │  │ Holds 120.0 MiB on disk (walked).                                                │  
-  │   apt — 1 finding                                                  │  │ Found because the apt archives directory exists, but apt-get is not on PATH      │  
-  │ ▸ [ ] The apt package cache — 120.0 MiB — safe to rebuild          │  │ here.                                                                            │  
-  │   docker — 1 finding                                               │  │ On disk:                                                                         │  
-  │   [x] The container volumes — 500.0 MiB (tool-reported) — delicate │  │ /var/cache/apt/archives                                                          │  
-  │   — shares bytes with an item above                                │  │ downloaded package archives; apt downloads them again when it needs them.        │  
-  │   go — 1 finding                                                   │  │ Measured: 2.5 GiB, of which 2.3 GiB takes space on the disk. Logical size is     │  
-  │   [ ] The Go build cache — 640.0 MiB — safe to rebuild             │  │ what the files hold; physical size is the space the filesystem spends on them,   │  
-  │   npm — 1 finding                                                  │  │ and it is the number the rows carry. The two differ when files are sparse,       │  
-  │   [x] The npm cache — 900.0 MiB — safe to rebuild                  │  │ compressed, or still shared by another name.                                     │  
-  │   projects — 1 finding                                             │  │ 1 item report their own numbers rather than being walked: a container engine's   │  
-  │   [ ] node_modules in /home/testuser/projects/app — 200.0 MiB —    │  │ store is measured by the engine, because walking it would describe the files and │  
-  │   costs a re-download or a rebuild                                 │  │ not what the engine could actually reclaim. Those rows say (tool-reported).      │  
-  │ ────────────────────────────────────────────────────────────────── │  │ Some findings share files -- one store living inside another, or several names   │  
-  │   [p] Preview the 2 items selected                                 │  │ for the same bytes. The totals count each file once, and a row that shares bytes │  
-  │   [d] Add the project directory /home/testuser/projects            │  │ says so, so adding the rows together cannot overshoot what the disk actually     │  
-  │ ← Back                                                             │  │ holds.                                                                           │  
-  ╰────────────────────────────────────────────────────────────────────╯  │ Read these numbers as the truth about what was looked at, not as a promise about │  
-                                                                          │ what removal frees: 1 item were stopped by the ceilings a scan runs under, so    │  
-                                                                          │ their sizes are the part that was read, and 1 item overlap another finding, so   │  
-                                                                          │ what they would free alone is less than their own size.                          │  
-                                                                          │ 2 items are marked: 1 item safe to rebuild 1 item delicate: data a tool owns,    │  
-                                                                          │ which may hold something that is not reproducible The preview names each one's   │  
-                                                                          │ command or path before anything runs.                                            │  
-                                                                          │ Development caches looks at the caches, downloads, build directories, dependency │  
-                                                                          │ trees and container stores of the development tools this machine actually has -- │  
-                                                                          │ a tool is named only when a program on the PATH, an environment variable or an   │  
-                                                                          │ existing directory says it is used here. Every finding starts unmarked, and the  │  
-                                                                          │ dependencies, the container images and the volumes are never marked for you: a   │  
-                                                                          │ store is looked at, and then cleaned, only because you marked it and confirmed   │  
-                                                                          │ the preview. Nothing runs on its own.                                            │  
-                                                                          │ The scan looks at the stores the tools keep in their own locations and at the    │  
-                                                                          │ project directories listed here. It never walks a whole disk, and it never       │  
-                                                                          │ follows a symbolic link out of a store it knows. No project directory has been   │  
-                                                                          │ added, so the build artifacts and dependency trees inside projects are not part  │  
-                                                                          │ of this scan. [d] Add the project directory /home/testuser/projects adds         │  
-                                                                          │ /home/testuser/projects, the directory this installer was started from.          │  
-                                                                          │ A container engine's or a package manager's own store is never deleted file by   │  
-                                                                          │ file: the engine's own prune command and the manager's own cache command are     │  
-                                                                          │ … and 7 more                                                                     │  
+  │                                                                    │  │  Finding            The apt package cache                                       │  
+  ├─ apt — 1 finding ──────────────────────────────────────────────────┤  │  Risk               safe to rebuild · downloads                                 │  
+  │ ▸ The apt package cache                                            │  │  On disk            120.0 MiB                                                   │  
+  │   120.0 MiB · safe to rebuild                                      │  │  Measured           walked                                                      │  
+  ├─ docker — 1 finding ───────────────────────────────────────────────┤  │  Found because      the apt archives directory exists, but apt-get is not on    │  
+  │ ▣ The container volumes                                            │  │                      PATH here                                                   │  
+  │   500.0 MiB (tool-reported) · delicate                             │  │  On disk            /var/cache/apt/archives                                     │  
+  ├─ go — 1 finding ───────────────────────────────────────────────────┤  │  Reconstruct        downloaded package archives; apt downloads them again when  │  
+  │ ▢ The Go build cache                                               │  │                      it needs them                                               │  
+  │   640.0 MiB · safe to rebuild                                      │  ├─ Measured ───────────────────────────────────────────────────────────────────────┤  
+  ├─ npm — 1 finding ──────────────────────────────────────────────────┤  │  On disk            2.3 GiB                                                     │  
+  │ ▣ The npm cache                                                    │  │  Contents           2.5 GiB                                                     │  
+  │   900.0 MiB · safe to rebuild                                      │  │  They differ when   files are sparse, compressed, or still shared by another    │  
+  ├─ projects — 1 finding ─────────────────────────────────────────────┤  │                      name                                                        │  
+  │ ▢ node_modules in /home/testuser/projects/app                      │  │  Tool-reported      1 item reports its own number rather than being walked      │  
+  │   200.0 MiB · costs a re-download or a rebuild                     │  │  Shared files       counted once here, and a finding that shares bytes says so  │  
+  ╰────────────────────────────────────────────────────────────────────╯  │                      in its own card                                             │  
+                                                                          │  Stopped            1 item hit the ceilings a scan runs under, so the size      │  
+                                                                          │                      shown is a lower bound                                      │  
+                                                                          │  Overlapping        1 item overlap another finding, so each would free less     │  
+                                                                          │                      alone                                                       │  
+                                                                          ├─ Marked ─────────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Selected           2 items                                                     │  
+                                                                          │  Safe               1 item to rebuild                                           │  
+                                                                          │  Delicate           1 item a tool's own data, which may hold something          │  
+                                                                          │                      irreproducible                                              │  
+                                                                          │  Preview            names each one's command or path before anything runs       │  
+                                                                          ├─ The scope ──────────────────────────────────────────────────────────────────────┤  
+                                                                          │  Looks at           the stores tools keep in their own locations, and the       │  
+                                                                          │                      project directories here                                    │  
+                                                                          │  Never              walks a whole disk, or follows a symbolic link out of a     │  
+                                                                          │                      store it knows                                              │  
+                                                                          │  Projects           none added, so project-level stores are not part of this    │  
+                                                                          │                      scan                                                        │  
+                                                                          │  Started from       /home/testuser/projects, which the [d] key adds to the      │  
+                                                                          │                      scope                                                       │  
+                                                                          ├─ What it will not do ────────────────────────────────────────────────────────────┤  
+                                                                          │  Engines            never deleted file by file: the engine's or manager's own   │  
+                                                                          │                      prune command                                               │  
+                                                                          │  No command         the finding is reported rather than removed                 │  
+                                                                          │ … and 8 more                                                                     │  
                                                                           ╰──────────────────────────────────────────────────────────────────────────────────╯  
   ● Ready ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
                                                                                                                                                                 
