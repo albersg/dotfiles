@@ -17,11 +17,23 @@ import (
 // numbers the plan promised the reader -- the mean, the variability, the
 // percentile -- may not be computed and then left unread.
 
-// TestShellAuditProfileParagraphNamesTheInstrumentThatRan holds the paragraph to
+// shellAuditFactText is a screen's facts as one line of words, for the guards that
+// hold the rows to the instrument that produced them. It reads the rows the card and
+// the compact body are both drawn from, so a guard cannot pass on a sentence the
+// screen no longer prints.
+func shellAuditFactText(facts []iconFact) string {
+	parts := make([]string, 0, len(facts))
+	for _, fact := range facts {
+		parts = append(parts, fact.Label+": "+fact.Value)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// TestShellAuditAttributionNamesTheInstrumentThatRan holds the attribution's rows to
 // the instrument that actually ran: bash's traced start is not zprof's table and
 // fish's startup profile is not either, and a share the instrument does not print
 // is not printed by the screen. Covers S2/S4.
-func TestShellAuditProfileParagraphNamesTheInstrumentThatRan(t *testing.T) {
+func TestShellAuditAttributionNamesTheInstrumentThatRan(t *testing.T) {
 	tests := []struct {
 		name    string
 		state   shellAuditState
@@ -53,7 +65,7 @@ func TestShellAuditProfileParagraphNamesTheInstrumentThatRan(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shellAuditAttributionParagraph(tt.state)
+			got := shellAuditFactText(shellAuditAttributionFacts(tt.state))
 			if strings.Contains(got, tt.absence) {
 				t.Errorf("the paragraph names %q, which did not measure this start: %q", tt.absence, got)
 			}
@@ -81,7 +93,7 @@ func TestShellAuditProfileParagraphNamesTheInstrumentThatRan(t *testing.T) {
 				Self: 100 * time.Millisecond, Total: 100 * time.Millisecond, Calls: 1,
 			}},
 		}
-		if got := shellAuditAttributionParagraph(st); !strings.Contains(strings.ToLower(got), one.want) {
+		if got := shellAuditFactText(shellAuditAttributionFacts(st)); !strings.Contains(strings.ToLower(got), one.want) {
 			t.Errorf("the %s paragraph does not name %q: %q", one.kind, one.want, got)
 		}
 	}
@@ -96,7 +108,7 @@ func TestShellAuditProfileParagraphNamesTheInstrumentThatRan(t *testing.T) {
 			Self: 100 * time.Millisecond, Total: 100 * time.Millisecond, Calls: 1,
 		}},
 	}
-	if got := shellAuditAttributionParagraph(traced); strings.Contains(got, "larger than its self time") {
+	if got := shellAuditFactText(shellAuditAttributionFacts(traced)); strings.Contains(got, "larger than its self time") {
 		t.Errorf("the traced paragraph explains a total the trace does not print: %q", got)
 	}
 }
@@ -149,11 +161,13 @@ func TestShellAuditScreenPresentsTheStatisticsItMeasured(t *testing.T) {
 	}
 }
 
-// TestShellAuditStatisticsParagraphNamesEachCountOnce holds the paragraph to
-// English. The plural helper prints a count with its word, and a format that adds
-// the number again produced "Across the 10 finished 10 starts" -- numbers that are
-// right inside a sentence that reads as a measurement nobody made. Covers S3.
-func TestShellAuditStatisticsParagraphNamesEachCountOnce(t *testing.T) {
+// TestShellAuditStatisticsRowsNameEachCountOnce holds the statistics to English.
+// The plural helper prints a count with its word, and a format that added the number
+// again produced "Across the 10 finished 10 starts" -- numbers that are right inside
+// a sentence that reads as a measurement nobody made. The rows state the count once,
+// in the row that names it, and the reading each row prints begins with the article
+// the word takes. Covers S3.
+func TestShellAuditStatisticsRowsNameEachCountOnce(t *testing.T) {
 	samples := []time.Duration{
 		100 * time.Millisecond, 110 * time.Millisecond, 120 * time.Millisecond,
 		130 * time.Millisecond, 140 * time.Millisecond, 150 * time.Millisecond,
@@ -161,28 +175,28 @@ func TestShellAuditStatisticsParagraphNamesEachCountOnce(t *testing.T) {
 		900 * time.Millisecond,
 	}
 	st := shellAuditState{Measured: true, Samples: samples, Stats: shellAuditStatsOf(samples)}
-	got := shellAuditStatisticsParagraph(st)
+	got := shellAuditFactText(shellAuditStatisticFacts(st))
 
 	for _, bad := range []string{"10 finished 10 starts", "with the 1 1 start", "3 finished 3 starts"} {
 		if strings.Contains(got, bad) {
-			t.Errorf("the paragraph repeats a count (%q): %q", bad, got)
+			t.Errorf("the rows repeat a count (%q): %q", bad, got)
 		}
 	}
-	if !strings.Contains(got, "Across the 10 finished starts") {
-		t.Errorf("the paragraph does not state the count once: %q", got)
+	if !strings.Contains(got, "Behind these: 10 finished starts") {
+		t.Errorf("the rows do not state the count once: %q", got)
 	}
 	if !strings.Contains(got, "beyond 1.5 times the interquartile range") {
-		t.Errorf("the paragraph does not name the fence the trimmed median used: %q", got)
+		t.Errorf("the rows do not name the fence the trimmed median used: %q", got)
 	}
 
-	// The article follows the word it introduces, and the reading this paragraph
-	// prints can begin with a vowel.
+	// The article follows the word it introduces, and the reading this row prints can
+	// begin with a vowel.
 	short := shellAuditState{Measured: true, Samples: samples[:3], Stats: shellAuditStatsOf(samples[:3])}
-	if paragraph := shellAuditStatisticsParagraph(short); strings.Contains(paragraph, "a erratic") ||
-		strings.Contains(paragraph, "3 finished 3 starts") {
-		t.Errorf("the short-form paragraph is malformed: %q", paragraph)
+	shortText := shellAuditFactText(shellAuditStatisticFacts(short))
+	if strings.Contains(shortText, "a erratic") || strings.Contains(shortText, "3 finished 3 starts") {
+		t.Errorf("the short-form rows are malformed: %q", shortText)
 	}
-	if paragraph := shellAuditStatisticsParagraph(short); !strings.Contains(paragraph, "8 runs") {
-		t.Errorf("the paragraph does not say what the missing percentile would need: %q", paragraph)
+	if !strings.Contains(shortText, "8 runs") {
+		t.Errorf("the rows do not say what the missing percentile would need: %q", shortText)
 	}
 }

@@ -2,11 +2,11 @@
    Utilities                                                         dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
   The shell's startup                                                           
-  zsh is started the way a terminal starts it -- `zsh -i -c exit`, each start   
-  bounded by 10 s -- so the number describes the start you wait through when    
-  you open a terminal. The plan runs 5 such starts, and the median is the       
-  middle one: not an average, and not a single run.                             
-  … and 50 more                                                                 
+  The press: `zsh -i -c exit`.                                                  
+  Each start: bounded by 10 s.                                                  
+  The number: the median: the middle start, not an average and not a single     
+  run.                                                                          
+  … and 65 more                                                                 
                                                                                 
   ▸ [s] Measure the shell's startup                                             
   ────────────────────────────────────────────────────────────────────────────  

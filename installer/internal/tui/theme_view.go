@@ -192,6 +192,133 @@ func (m Model) themePickerHints() []installerHint {
 	return append(hints, hintBack)
 }
 
+// ============================================================================
+// THE PICKER'S OWN DETAIL — the plan and the refresh review as rows
+// ============================================================================
+//
+// The picker draws its own screen (the grid, the list, the palette board and the
+// tip), so it is not in the facts registry: there is no detail card beside a list
+// for sectionScreenGroups to fill. Its detail is the text the screen has when there
+// is nothing to choose -- and the refresh review's plan, which is prose about files
+// and promises -- and both are rows here, for the reason the rest of this pass
+// exists: a reader looking for "which file" or "is anything written" should find a
+// labelled row, not a paragraph to parse.
+//
+// The palette and the grid are untouched: their colours are the definitions' own and
+// their layout is the mockup's.
+
+// themePickerAreas is the picker's detail divided into the areas the section's card
+// sets off with a divider. A picker with themes to choose states the plan; one with
+// none states why, in the model's own words; and the refresh review states the plan
+// it is about to run, file by file.
+func (m Model) themePickerAreas() []factArea {
+	if m.ThemeRefreshReview {
+		if m.ThemeRefreshDone {
+			return themeRefreshResultAreas(m.ThemeRefreshResult)
+		}
+		return themeRefreshReviewAreas(m.ThemeRefreshCandidates)
+	}
+	if len(m.DotfilesThemes) == 0 {
+		if m.dotfilesThemesPending() {
+			return []factArea{{Name: "Reading", Facts: []iconFact{
+				{Value: "Reading the dotfiles' theme definitions from the repository checkout…"},
+			}}}
+		}
+		reason := m.DotfilesThemesErr
+		if reason == "" {
+			reason = themeDefinitionsNotFoundMessage()
+		}
+		return []factArea{{Name: "Why nothing can be applied", Facts: []iconFact{
+			{Label: "Why", Value: "the dotfiles' own theme is not switchable here: " + reason},
+		}}}
+	}
+	return []factArea{{Name: "The plan", Facts: themePickerPlanFacts()}}
+}
+
+// themePickerPlanFacts is what choosing a theme does, as rows: the definitions' one
+// home, the tools it paints and the tools it leaves out, the preview the cursor
+// gives without applying anything, and the record that makes the switch undoable.
+func themePickerPlanFacts() []iconFact {
+	return []iconFact{
+		{Label: "Defined once in", Value: "themes/"},
+		{Label: "Choosing applies it", Value: "to every tool it can paint"},
+		{Label: "It names", Value: "the tools it leaves out, on the theme's own row"},
+		{Label: "Moving the cursor", Value: "previews a theme without applying anything"},
+		{Label: "The switch", Value: "records what it replaces, so it can be undone"},
+	}
+}
+
+// themeRefreshReviewAreas is the review before anything is written: which files a
+// refresh would touch and why, where each file that may be the user's is preserved
+// first, and the promise that the previous bytes are recorded so Undo can put them
+// back. Each file is one row under its own name, so a row names the file it is
+// about instead of a bullet in a sentence.
+func themeRefreshReviewAreas(candidates []themeRefreshCandidate) []factArea {
+	var refreshable, blocked []themeRefreshCandidate
+	for _, cand := range candidates {
+		if cand.Problem != "" {
+			blocked = append(blocked, cand)
+			continue
+		}
+		refreshable = append(refreshable, cand)
+	}
+
+	var areas []factArea
+	if len(refreshable) > 0 {
+		facts := []iconFact{
+			{Label: "Would touch", Value: fmt.Sprintf("%s that are not up to date; nothing has been written yet",
+				reviewPlural(len(refreshable), "managed file", "managed files"))},
+		}
+		for _, cand := range refreshable {
+			preserved := cand.PreserveLabel
+			if preserved == "" {
+				preserved = "it carries the dotfiles marker, so it is refreshed in place"
+			}
+			facts = append(facts,
+				iconFact{Label: cand.Tool, Value: cand.Path + " — " + cand.Reason},
+				iconFact{Label: cand.Tool, Value: preserved},
+			)
+		}
+		facts = append(facts,
+			iconFact{Label: "Undo", Value: "the previous bytes are recorded before anything is written, so Undo can put them back"},
+			iconFact{Label: "To write", Value: "choose “Yes, refresh”"},
+			iconFact{Label: "To leave it", Value: "choose Cancel: every file stays as it is"},
+		)
+		areas = append(areas, factArea{Name: "Refresh", Facts: facts})
+	}
+
+	if len(blocked) > 0 {
+		var facts []iconFact
+		for _, cand := range blocked {
+			facts = append(facts, iconFact{Label: cand.Tool, Value: cand.Path + " — " + cand.Problem})
+		}
+		areas = append(areas, factArea{Name: "Cannot be refreshed", Facts: facts})
+	}
+
+	return areas
+}
+
+// themeRefreshResultAreas is the review's outcome: the lines the refresh wrote -- which
+// files it refreshed, where each previous file was preserved, and what it left alone --
+// as one labelled block. A result is the run's own rows rather than a set of values the
+// screen could split, so it keeps its own lines under the label that names it, exactly
+// as a tool's output does in the grammar (facts_cards.go's factLines).
+func themeRefreshResultAreas(paragraphs []string) []factArea {
+	lines := make([]string, 0, len(paragraphs))
+	for _, line := range paragraphs {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return []factArea{{Name: "The refresh", Facts: []iconFact{
+		{Label: "The result", Value: strings.Join(lines, "\n")},
+	}}}
+}
+
 // themePickerIntro is what the screen says under its heading: the mockup's
 // subtitle where there are themes to choose, and the screen's own account of
 // itself where there are none -- a read still running, or the reason this host

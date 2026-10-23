@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,8 +116,7 @@ func (m Model) renderShellAuditWide(l layout, budget int) string {
 	// its chip are the rows that are not body (cardChromeRows), and the body is cut
 	// by its own row count with a declared total rather than by the frame's slice.
 	methodRows := budget - len(body) - cardChromeRows
-	body = append(body, card("Methodology", "How the measurement works", composition,
-		m.shellAuditMethodologyBody(cardContentWidth(composition), methodRows, st))...)
+	body = append(body, m.shellAuditMethodologyCard(composition, methodRows)...)
 
 	if len(body) > budget {
 		body = body[:budget]
@@ -418,79 +418,71 @@ func (m Model) shellAuditRecentRunsBody(width int, st shellAuditState) []string 
 	return out
 }
 
-// shellAuditMethodologyBody is the Methodology card: the method the number comes
-// from and the attribution the instrument returned, drawn from the same paragraphs
-// the compact body draws -- the plan, what zprof (or bash, or fish) blamed, the
-// starts that support the median, and the promise that nothing was changed. It is
-// the same words in both shapes for the same reason the plan paragraph is a
-// function: one measurement, one explanation. The recommendations come first when
-// the user opened them, so a short card cuts the method rather than the answer they
-// asked for, exactly as the compact body orders the two.
+// shellAuditMethodologyCard is the Methodology card: the screen's detail areas the
+// cards beside it do not already draw (shellAuditMethodologyGroups), set off by the
+// card's own dividers. The card is budgeted by the rows the bands above it left, and
+// a detail taller than that budget is cut by clipCardGroups with the frame's own
+// marker rather than losing the attribution silently.
 //
-// The card carries the method and the attribution, not the compact body's whole
-// prose: the wizard's plan, the statistics, the history and the comparison are the
-// floor's shape, and the results and recent-runs cards beside this one already draw
-// the numbers those paragraphs describe. What the card does carry, it carries whole
-// -- the attribution's own rows, the count of rows the instrument reported and this
-// screen does not name, and the promise -- in blocks, so the declared cut is a
-// sentence of its own rather than a clause a wrap can split.
-//
-// The card is budgeted by the rows the bands above it left, and a card taller than
-// that budget ends with the count of the lines it could not draw -- the rule the
-// description and the notice follow -- rather than losing the attribution silently.
-// The paragraphs are ordered so the cut falls on the last line of the promise: the
-// method, the instrument's own rows and the declared number of rows it reported all
-// come before it.
-func (m Model) shellAuditMethodologyBody(width, rows int, st shellAuditState) []string {
+// The order is the screen's own: the recommendations come first when the user
+// opened them, so a short card cuts the method rather than the answer they asked
+// for, exactly as the compact body orders the two.
+func (m Model) shellAuditMethodologyCard(width, rows int) []string {
 	if rows < 1 {
 		return nil
 	}
-
-	var paragraphs []string
-	if st.AdviceOpen {
-		paragraphs = append(paragraphs, shellAuditAdviceParagraphs(shellAuditReportOf(st))...)
+	content := cardContentWidth(width)
+	groups := m.shellAuditMethodologyGroups(content)
+	if len(groups) == 0 {
+		return nil
 	}
 
-	paragraphs = append(paragraphs, shellAuditPlanParagraph(st))
-	if len(st.Attribution) == 0 {
-		if st.AttributionReason != "" {
-			paragraphs = append(paragraphs, st.AttributionReason)
+	// The areas are drawn whole, in order, until the rows run out; the area that
+	// crosses the budget is drawn as far as its own rows go; and every row the card
+	// could not draw -- the rest of that area and all of the areas after it -- is
+	// declared in ONE count. Two markers would be a card telling a reader to look in
+	// two places for what it kept back, and a divider the card never draws is not a
+	// row it kept back either.
+	limit := rows - 1 // the marker's own row
+	spent := 0
+	drawn := make([]cardGroup, 0, len(groups))
+	hidden := 0
+	for i, group := range groups {
+		cost := len(group.Lines)
+		if len(drawn) > 0 {
+			cost++ // the divider above this area
 		}
-	} else {
-		// The attribution is drawn in its own blocks -- the instrument's rows, the
-		// count of rows it reported and this screen does not name, and what the
-		// numbers mean -- so the declared cut starts on its own line instead of
-		// falling half-way through a wrapped clause.
-		paragraphs = append(paragraphs, shellAuditAttributionTable(st))
-		if cut := shellAuditAttributionCut(st); cut != "" {
-			paragraphs = append(paragraphs, cut)
-		}
-		paragraphs = append(paragraphs, shellAuditAttributionClosing(st.Kind))
-	}
-	if runList := shellAuditRunList(st.Samples); runList != "" {
-		paragraphs = append(paragraphs,
-			shellAuditRunListLead+runList)
-	}
-	paragraphs = append(paragraphs, shellAuditReadOnlyPromise)
-
-	var lines []string
-	for _, paragraph := range paragraphs {
-		if paragraph == "" {
+		if spent+cost <= limit {
+			drawn = append(drawn, group)
+			spent += cost
 			continue
 		}
-		for i, line := range wrapText(paragraph, max(1, width-2), 0) {
-			if i == 0 {
-				lines = append(lines, AccentKeyStyle.Render("• ")+InkStyle.Render(line))
-				continue
-			}
-			lines = append(lines, "  "+InkStyle.Render(line))
+		room := limit - spent
+		if len(drawn) > 0 {
+			room-- // this area's divider is drawn only if a row of it is
+		}
+		if room > 0 {
+			drawn = append(drawn, cardGroup{Title: group.Title, Lines: group.Lines[:room]})
+			hidden = len(group.Lines) - room
+		} else {
+			hidden = len(group.Lines)
+		}
+		for _, rest := range groups[i+1:] {
+			hidden += len(rest.Lines)
+		}
+		break
+	}
+
+	if hidden > 0 {
+		marker := MutedStyle.Render(fmt.Sprintf("… and %d more", hidden))
+		if len(drawn) == 0 {
+			drawn = append(drawn, cardGroup{Lines: []string{marker}})
+		} else {
+			last := &drawn[len(drawn)-1]
+			last.Lines = append(last.Lines, marker)
 		}
 	}
-	if len(lines) > rows {
-		hidden := len(lines) - rows + 1
-		lines = append(lines[:rows-1], MutedStyle.Render(fmt.Sprintf("… and %d more", hidden)))
-	}
-	return lines
+	return cardGroups("Methodology", "How the measurement works", width, drawn)
 }
 
 // shellAuditFooterStatus is the footer's middle line: what the run is measuring,
@@ -507,6 +499,463 @@ func (m Model) shellAuditFooterStatus() string {
 			shellAuditDuration(st.Median), len(st.Samples), st.Runs, shellAuditDuration(st.Fastest))
 	}
 	return ""
+}
+
+// ============================================================================
+// THE SHELL STARTUP'S DETAIL — the method, the numbers and the promise as rows
+// ============================================================================
+//
+// The detail of this screen used to be a list of paragraphs: the method, the plan
+// and its keys, the statistics, the history, the context, the attribution, the
+// comparison, the trend, the recommendations, the runs and the promise, each one
+// a sentence the reader had to parse for the value inside it. At 80x24 that was
+// 51 paragraphs behind a four-line band, and the band printed the first one and
+// "… and 50 more".
+//
+// This section is the same material as facts_cards.go's rows: an []factArea whose
+// areas are the card's dividers (shellAuditMethodologyGroups) and whose flatten is
+// the compact body's prose (shellAuditDescription), so the floor and the wide
+// frame read one list. Every row is the label that names the fact and the value
+// the state holds; the only rows whose value is a sentence are the model's own --
+// a refusal reason, a note, the argument behind a recommendation -- and those are
+// the ones that cannot be shortened without inventing a claim (see
+// factArgumentLabels).
+//
+// Nothing here is a second copy of the state. The plan is the plan the next press
+// would really run (clampShellAuditPlan, shellAuditPlanCommand), the statistics are
+// the state's own summary, and the attribution is the instrument's own rows in the
+// instrument's own units, so no row can disagree with the number beside it.
+
+// shellAuditAreas is the screen's detail divided into the areas its card sets off
+// with a divider. The order is the order the reader needs them in, and it is the
+// order the compact body prints: what the press will do, what the finished runs
+// support, what was measured, what the shell's instrument named, the two
+// comparisons, the recommendations, the starts themselves and the promise.
+func (m Model) shellAuditAreas() []factArea {
+	st := m.ShellAudit
+	if reason := m.shellAuditUnavailableReason(); reason != "" {
+		// The screen's verdict is one sentence and there is no datum behind it: the
+		// reason the row that measures is not offered is the whole answer, and a
+		// label in front of it would say "Reason" twice.
+		return []factArea{{Name: "Why nothing can be measured", Facts: []iconFact{{Value: reason}}}}
+	}
+
+	plan := clampShellAuditPlan(st.Plan)
+	report := shellAuditReportOf(st)
+
+	var areas []factArea
+	if st.AdviceOpen {
+		// The recommendations come first when the user asked for them: they are the
+		// part of this screen a reader comes back for, and the frame cuts from the
+		// bottom.
+		if area, ok := shellAuditAdviceArea(report); ok {
+			areas = append(areas, area)
+		}
+	}
+
+	areas = append(areas,
+		factArea{Name: "The method", Facts: shellAuditMethodFacts(st, plan)},
+		factArea{Name: "The plan", Facts: shellAuditPlanFacts(st, plan)},
+	)
+	if st.Measured && st.Stats.Count > 0 {
+		areas = append(areas, factArea{Name: "What the runs support", Facts: shellAuditStatisticFacts(st)})
+	}
+
+	if !st.Measured {
+		areas = append(areas, shellAuditNotMeasuredArea(st))
+	} else {
+		areas = append(areas,
+			factArea{Name: "The measurement", Facts: shellAuditMeasurementFacts(st)},
+			factArea{Name: "The attribution", Facts: shellAuditAttributionFacts(st)},
+		)
+		if area, ok := shellAuditComparisonArea(st, report); ok {
+			areas = append(areas, area)
+		}
+		if area, ok := shellAuditTrendArea(st, report); ok {
+			areas = append(areas, area)
+		}
+	}
+
+	if !st.AdviceOpen {
+		if area, ok := shellAuditAdviceArea(report); ok {
+			areas = append(areas, area)
+		}
+	}
+	if st.Measured {
+		if area, ok := shellAuditRunArea(st); ok {
+			areas = append(areas, area)
+		}
+	}
+
+	return append(areas, factArea{Name: "What it will not do", Facts: shellAuditPromiseFacts()})
+}
+
+// shellAuditMethodFacts is the method the number comes from, as the rows a reader
+// can check it against: the exact line, the bound every start ran under, the rule
+// that the number is the middle start, what that number describes, and where the
+// clean comparison is made. It is a function rather than a paragraph in the body
+// because the wide frame's Methodology card draws the same rows.
+func shellAuditMethodFacts(st shellAuditState, plan shellAuditPlan) []iconFact {
+	timeout := shellAuditDuration(st.Timeout)
+	if st.Timeout <= 0 {
+		timeout = "its own bound"
+	}
+	return []iconFact{
+		{Label: "The press", Value: "`" + shellAuditPlanCommand(st.Shell, st.Kind, plan.Mode) + "`"},
+		{Label: "Each start", Value: "bounded by " + timeout},
+		{Label: "The number", Value: "the median: the middle start, not an average and not a single run"},
+		{Label: "It describes", Value: "the start you wait through when you open a terminal"},
+		{Label: "The comparison", Value: "the one measurement here that separates the shell's own startup from what you put in front of it"},
+		{Label: "Where it runs", Value: "a directory of the utility's own: your files are read, never moved and never rewritten"},
+	}
+}
+
+// shellAuditPlanFacts is the plan the next press would really run -- the start, how
+// many starts, the warm-up, the clean comparison, the keys that change each of
+// those, and where a kept history would live -- so the settings are rows instead of
+// a sentence with four keys in the middle of it.
+func shellAuditPlanFacts(st shellAuditState, plan shellAuditPlan) []iconFact {
+	facts := []iconFact{
+		{Label: "The start", Value: plan.Mode.label()},
+		{Label: "Runs", Value: reviewPlural(plan.Samples, "start", "starts")},
+		{Label: "Warm-up", Value: shellAuditWarmupPhrase(plan.Warmup)},
+		{Label: "Clean comparison", Value: shellAuditOnOff(plan.Baseline,
+			"the same start measured again without your configuration",
+			"not measured: [b] turns it on")},
+		{Label: "Keys", Value: "[m] the start, [n] the runs, [w] the warm-up, [b] the clean comparison"},
+	}
+	if st.History.Enabled {
+		return append(facts,
+			iconFact{Label: "History", Value: defaultShellAuditHistoryPath()},
+			iconFact{Label: "It holds", Value: "a stamp, the counts, the median and the top of the profile, and nothing else about this machine"},
+			iconFact{Label: "To stop", Value: "[h] stops keeping them; what is already stored is kept"},
+		)
+	}
+	return append(facts,
+		iconFact{Label: "History", Value: "off: nothing is written to this machine"},
+		iconFact{Label: "To keep it", Value: "[h] stores the runs beside the installer's own record"},
+	)
+}
+
+// shellAuditStatisticFacts is what the finished runs support beyond the median and
+// the range, and what they do not: the mean, the spread and the reading it gives,
+// the percentile and the trimmed median. The floors are the ones the statistics
+// layer gates on, so a row and the number beside it cannot disagree, and a number
+// the count cannot support is named as missing rather than printed.
+func shellAuditStatisticFacts(st shellAuditState) []iconFact {
+	stats := st.Stats
+	if stats.Count == 0 && len(st.Samples) > 0 {
+		stats = shellAuditStatsOf(st.Samples)
+	}
+	if stats.Count == 0 {
+		return nil
+	}
+
+	facts := []iconFact{
+		{Label: "Behind these", Value: reviewPlural(stats.Count, "finished start", "finished starts")},
+		{Label: "Mean", Value: shellAuditDuration(stats.Mean)},
+	}
+	if word, ratio, ok := stats.steadiness(); ok {
+		facts = append(facts, iconFact{Label: "Spread", Value: fmt.Sprintf("%s (%.0f%% of the median): %s %s startup",
+			shellAuditDuration(stats.StdDev), ratio*100, shellAuditArticle(word), word)})
+	} else {
+		facts = append(facts, iconFact{Label: "Spread", Value: fmt.Sprintf("no spread to read: it needs %s and this measurement has %d",
+			reviewPlural(shellAuditSpreadFloor, "run", "runs"), stats.Count)})
+	}
+	if stats.P95Reported {
+		facts = append(facts, iconFact{Label: "95th percentile", Value: shellAuditDuration(stats.P95)})
+	} else {
+		// The missing statistic is named without the words it would have been
+		// printed with, so a reader scanning for a percentile does not find one that
+		// was never taken: only what it would take to have one.
+		facts = append(facts, iconFact{Label: "No percentile", Value: fmt.Sprintf("it is reported from %s and this measurement has %d",
+			reviewPlural(shellAuditPercentileFloor, "run", "runs"), stats.Count)})
+	}
+	if stats.TrimmedMedianReported {
+		facts = append(facts, iconFact{Label: "Trimmed median", Value: fmt.Sprintf("%s, with %s beyond %s times the interquartile range left out",
+			shellAuditDuration(stats.TrimmedMedian), reviewPlural(len(stats.Outliers), "start", "starts"),
+			strconv.FormatFloat(shellAuditOutlierFence, 'g', -1, 64))})
+	}
+	return facts
+}
+
+// shellAuditMeasurementFacts is the context of the number -- which shell, which
+// start, which command, which terminal -- because a number whose context is missing
+// is the number this utility exists not to print. A start that still includes
+// something the plan asked to leave out says so in the model's own words.
+func shellAuditMeasurementFacts(st shellAuditState) []iconFact {
+	terminal := "none attached"
+	if st.Terminal {
+		terminal = shellNameOr(st.TerminalName, "attached")
+	}
+	facts := []iconFact{
+		{Label: "Shell", Value: shellNameOr(st.Shell, "not named")},
+	}
+	if st.Version.Raw != "" {
+		facts = append(facts, iconFact{Label: "Version", Value: st.Version.Raw})
+	}
+	facts = append(facts,
+		iconFact{Label: "Start", Value: st.Mode.label()},
+		iconFact{Label: "Command", Value: "`" + st.Command + "`"},
+		iconFact{Label: "Terminal", Value: terminal},
+	)
+	if st.Note != "" {
+		facts = append(facts, iconFact{Label: "Still included", Value: st.Note})
+	}
+	return facts
+}
+
+// shellAuditAttributionFacts is what the shell's own instrument named, one row per
+// entry in the instrument's own order and units: the name, and the numbers the
+// instrument printed for it. A share is only drawn where the instrument printed
+// one, and the rows the screen does not name are counted rather than dropped
+// silently.
+func shellAuditAttributionFacts(st shellAuditState) []iconFact {
+	if len(st.Attribution) == 0 {
+		if st.AttributionReason == "" {
+			return nil
+		}
+		return []iconFact{{Label: "Why nothing is named", Value: st.AttributionReason}}
+	}
+
+	facts := []iconFact{{Label: "Instrument", Value: shellAuditAttributionIntro(st)}}
+	shown := min(len(st.Attribution), shellAuditNamedFunctions)
+	for i, fn := range st.Attribution[:shown] {
+		facts = append(facts, iconFact{
+			Label: fmt.Sprintf("#%d", i+1),
+			Value: fn.Name + " — " + shellAuditAttributionRow(st.Kind, fn),
+		})
+	}
+	if cut := shellAuditAttributionCut(st); cut != "" {
+		facts = append(facts, iconFact{Label: "Not named", Value: cut})
+	}
+	for _, fact := range shellAuditAttributionReadingFacts(st.Kind) {
+		facts = append(facts, fact)
+	}
+	return append(facts, iconFact{
+		Label: "The profiled start",
+		Value: "a start of its own, so its numbers stand beside the median rather than inside it",
+	})
+}
+
+// shellAuditComparisonArea is the clean comparison as rows: the two medians it is
+// made of, the difference between them, how many runs each side is made of, and the
+// reading the difference supports. The reading is kept apart from the arithmetic on
+// purpose: the same number means "this is where your startup time goes" at sixty
+// percent and "this is the shell's own startup" at two, and only one of those two
+// readings is worth acting on.
+func shellAuditComparisonArea(st shellAuditState, report shellAuditReport) (factArea, bool) {
+	c := report.Comparison
+	if c.Reason != "" {
+		if !st.Plan.Baseline {
+			// The comparison was never asked for: the plan says so, and a refusal for a
+			// measurement nobody requested is not a fact about this run.
+			return factArea{}, false
+		}
+		return factArea{Name: "The clean comparison", Facts: []iconFact{
+			{Label: "Was asked for", Value: "and could not be made"},
+			{Label: "Why", Value: c.Reason},
+		}}, true
+	}
+
+	facts := []iconFact{
+		{Label: "With your configuration", Value: shellAuditDuration(c.Configured)},
+		{Label: "Without it", Value: shellAuditDuration(c.Clean)},
+		{Label: "Median of", Value: reviewPlural(c.Samples, "run each", "runs each")},
+	}
+	if c.Overhead <= 0 {
+		// A negative difference is not printed as a configuration that costs less
+		// than nothing: the two runs measured the same start twice.
+		facts = append(facts,
+			iconFact{Label: "Your configuration", Value: fmt.Sprintf("nothing measurable: the clean start measured %s slower", shellAuditDuration(-c.Overhead))},
+			iconFact{Label: "Reading it", Value: "the two starts are not separable here: a shell's own startup moves by that much between runs"},
+		)
+		return factArea{Name: "The clean comparison", Facts: facts}, true
+	}
+
+	facts = append(facts, iconFact{Label: "Your configuration", Value: fmt.Sprintf("%s, %.1f%% of the start", shellAuditDuration(c.Overhead), c.Share)})
+	if c.Share < shellAuditComparisonSmallShare {
+		facts = append(facts, iconFact{Label: "Reading it", Value: "almost all of this start is the shell itself: your configuration's share is inside the movement a startup has between runs"})
+	} else {
+		facts = append(facts, iconFact{Label: "Reading it", Value: "the part of the startup the utility measured as yours rather than the shell's, and where the profile is worth reading"})
+	}
+	return factArea{Name: "The clean comparison", Facts: facts}, true
+}
+
+// shellAuditTrendArea is where this measurement sits among the stored ones: the
+// median before, the median now, the change between them, how many stored
+// measurements it was read against and the date of the oldest one. It is drawn only
+// where the history is on -- a trend read from a history the user turned off would
+// be a comparison of nothing -- and a history that cannot be compared says why.
+func shellAuditTrendArea(st shellAuditState, report shellAuditReport) (factArea, bool) {
+	if !st.History.Enabled {
+		return factArea{}, false
+	}
+	t := report.Trend
+	if t.Kind == shellAuditTrendFirst || t.Kind == shellAuditTrendIncomparable {
+		if t.Reason == "" {
+			return factArea{}, false
+		}
+		return factArea{Name: "The trend", Facts: []iconFact{{Label: "No trend", Value: t.Reason}}}, true
+	}
+
+	change := fmt.Sprintf("%+.0f%% against %s", t.Share,
+		reviewPlural(t.Runs, "stored measurement", "stored measurements"))
+	if t.Kind != shellAuditTrendSteady {
+		change = strings.TrimPrefix(change, "+")
+	}
+	facts := []iconFact{
+		{Label: "Before", Value: shellAuditDuration(t.Before)},
+		{Label: "Now", Value: shellAuditDuration(t.After)},
+		{Label: "Change", Value: change},
+	}
+	if !t.Since.IsZero() {
+		facts = append(facts, iconFact{Label: "Oldest", Value: t.Since.Format(shellAuditTrendStamp)})
+	}
+	switch t.Kind {
+	case shellAuditTrendSteady:
+		facts = append(facts, iconFact{Label: "Reading it", Value: "inside the movement a startup has between runs, so nothing changed here"})
+	case shellAuditTrendRegression:
+		facts = append(facts, iconFact{Label: "Reading it", Value: "this start got slower"})
+	case shellAuditTrendImprovement:
+		facts = append(facts, iconFact{Label: "Reading it", Value: "this start got faster"})
+	}
+	return factArea{Name: "The trend", Facts: facts}, true
+}
+
+// shellAuditAdviceArea is the recommendations, one row each with the measurement it
+// came from: the kind of claim, the headline, the argument behind it and the
+// evidence. The argument is the one value here that keeps its sentences -- it is
+// the model's own measured claim, and cutting it to a row would either drop a fact
+// or invent a shorter one (factArgumentLabels).
+func shellAuditAdviceArea(report shellAuditReport) (factArea, bool) {
+	advice := report.advice()
+	if len(advice) == 0 {
+		return factArea{}, false
+	}
+
+	facts := []iconFact{{Label: "Recommendations", Value: fmt.Sprintf("%d, each with the measurement it came from", len(advice))}}
+	for index, item := range advice {
+		if index == shellAuditAdviceListLimit {
+			facts = append(facts, iconFact{Label: "More", Value: fmt.Sprintf("%d more, all of them from the same measurement", len(advice)-index)})
+			break
+		}
+		facts = append(facts,
+			shellAuditAdviceRow(strings.TrimSuffix(shellAuditAdvicePrefix(item.Kind), ":"), item.Headline),
+			shellAuditAdviceRow("Why it matters", item.Detail),
+			shellAuditAdviceRow("It comes from", item.Evidence),
+		)
+	}
+	return factArea{Name: "Recommendations", Facts: facts}, true
+}
+
+// shellAuditAdviceRow is one recommendation fact. The value is the model's own
+// sentence with its final full stop moved to the sentence factProse builds, so the
+// label that names the kind of claim -- Measured, Observed, Confirmed -- is never
+// dropped by a value that already reads as a whole sentence. The words are the
+// model's; only the terminator moves.
+func shellAuditAdviceRow(label, value string) iconFact {
+	return iconFact{Label: label, Value: strings.TrimSuffix(strings.TrimSpace(value), ".")}
+}
+
+// shellAuditRunArea is the starts behind the median: every completed start in the
+// order it ran, so the number can be reproduced by hand, and the starts that did
+// not finish -- a timeout and a failure are left out of the median and said so,
+// because a hung start has no time to report and writing one down would invent it.
+func shellAuditRunArea(st shellAuditState) (factArea, bool) {
+	var facts []iconFact
+	if list := shellAuditRunList(st.Samples); list != "" {
+		facts = append(facts,
+			iconFact{Label: "The starts", Value: list},
+			iconFact{Label: "Why they are listed", Value: shellAuditRunListLead},
+		)
+	}
+	if st.Timeouts > 0 {
+		facts = append(facts, iconFact{Label: "Killed at the bound", Value: fmt.Sprintf("%s, left out of the median: a hung start has no time to report",
+			reviewPlural(st.Timeouts, "start", "starts"))})
+	}
+	if st.Failures > 0 {
+		facts = append(facts, iconFact{Label: "Could not be started", Value: fmt.Sprintf("%s, left out of the median too",
+			reviewPlural(st.Failures, "start", "starts"))})
+		if st.Failure != "" {
+			facts = append(facts, iconFact{Label: "The last one said", Value: st.Failure})
+		}
+	}
+	if len(facts) == 0 {
+		return factArea{}, false
+	}
+	return factArea{Name: "The starts", Facts: facts}, true
+}
+
+// shellAuditNotMeasuredArea is the state a first visit sees: the row above starts
+// the runs, each one ends by itself or at the bound, and the screen stays usable
+// while they run. A press the utility refused says why instead, because a run that
+// will refuse again is a result about the start and not a missing measurement.
+func shellAuditNotMeasuredArea(st shellAuditState) factArea {
+	if st.RunReason != "" {
+		return factArea{Name: "The last press", Facts: []iconFact{
+			{Label: "Could not take the measurement", Value: st.RunReason},
+			{Label: "Trying again", Value: "choosing the row above; each start ends by itself or at the bound, so the screen cannot be held open by your shell"},
+		}}
+	}
+	return factArea{Name: "To measure", Facts: []iconFact{
+		{Label: "State", Value: "nothing has been measured yet"},
+		{Label: "To start", Value: "choosing the row above runs the starts"},
+		{Label: "Each start", Value: "ends by itself or at the bound, so the screen cannot be held open by your shell"},
+		{Label: "While they run", Value: "the screen stays usable, and [Esc] stops the ones that are left"},
+	}}
+}
+
+// shellAuditPromiseFacts is the one thing every shape of this screen promises: the
+// audit reads this machine and writes nothing to it, and a slower function is not a
+// fault this screen will fix for the user. Each clause is its own row because each
+// one is a thing the reader can rely on.
+func shellAuditPromiseFacts() []iconFact {
+	return []iconFact{
+		{Label: "Written", Value: "nothing: no startup file is written and no plugin is disabled"},
+		{Label: "A slow function", Value: "is not by itself a mistake"},
+		{Label: "The fix", Value: "belongs in your own configuration, applied by you"},
+	}
+}
+
+// shellAuditAreasTheCardsBesideTheMethodologyAlreadyHold names the areas the wide
+// frame draws somewhere other than the Methodology card. The plan's settings are the
+// action row's four boxes, the statistics are the Results card's boxes and summary
+// rows, and the starts are the Recent runs table -- so a row a reader can already see
+// on this frame is not repeated in the card that explains the number.
+var shellAuditAreasTheCardsBesideTheMethodologyAlreadyHold = map[string]bool{
+	"The plan":              true, // the action row's [m]/[n]/[w]/[b] boxes
+	"What the runs support": true, // the Results card's boxes and summary rows
+	"The starts":            true, // the Recent runs table
+}
+
+// shellAuditDrawnElsewhere reports whether the wide frame draws an area outside the
+// Methodology card.
+func shellAuditDrawnElsewhere(name string) bool {
+	return shellAuditAreasTheCardsBesideTheMethodologyAlreadyHold[name]
+}
+
+// shellAuditMethodologyGroups is the wide frame's Methodology card: the areas the
+// cards beside it do not already draw. The plan's settings are the action buttons,
+// the statistics are the Results card and the starts are the Recent runs card, so
+// the card that explains the number carries the method, the context, the
+// attribution, the two comparisons, the recommendations and the promise -- the rows
+// a reader cannot get anywhere else on this frame.
+func (m Model) shellAuditMethodologyGroups(content int) []cardGroup {
+	areas := m.shellAuditAreas()
+
+	groups := make([]cardGroup, 0, len(areas))
+	for _, area := range areas {
+		if shellAuditDrawnElsewhere(area.Name) {
+			continue
+		}
+		lines := factLines(area.Facts, content)
+		if len(lines) == 0 {
+			continue
+		}
+		groups = append(groups, cardGroup{Title: area.Name, Lines: lines})
+	}
+	return groups
 }
 
 // sideBySide places two card blocks beside each other, each padded to its own

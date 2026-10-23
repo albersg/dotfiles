@@ -2091,3 +2091,131 @@ only change is `[Tab] panel` -> `[Tab] menu`.
 Validation was the short loop: `gofmt -l` and `go vet ./internal/tui` clean, the
 home/welcome/dashboard/panel/frame/layout golden set, and the whole `internal/tui`
 package green. No preflight, no captures, no commit.
+
+L36. T12's remainder landed in the tree (uncommitted): the last three screens that
+still wrote paragraphs -- the shell startup's detail, the old update screen and the
+theme picker's plan and refresh review -- are rows now. L34 named them as the next
+slice; this is that slice, and it closes the "nowhere in the installer is a wall of
+text" rule for the screens it named.
+
+**The shell startup.** `shellAuditDescription` is now `factProse` of
+`shellAuditAreas()`, and the wide frame's Methodology card is `cardGroups` of the
+same areas, so the floor's band and the card read one list. The areas are The
+method, The plan, What the runs support, The measurement, The attribution, The clean
+comparison, The trend, the Recommendations, The starts and What it will not do. What
+the old paragraphs said, row by row:
+
+- The method paragraph (`shellAuditPlanParagraph`) is six rows: the press's exact
+  line, the bound every start gets, "the median: the middle start, not an average
+  and not a single run", what that number describes, the one measurement that
+  separates the shell's startup from the user's configuration, and the directory of
+  the utility's own that the clean start is pointed at.
+- The plan-and-keys paragraph is five settings rows (`[m]`/`[n]`/`[w]`/`[b]` are
+  the row that names what they change, so no key is lost) plus the history's two
+  states: the path it is stored in and what the file holds, or the row that says
+  nothing is written and `[h]` stores the runs.
+- The statistics paragraph is five rows: how many finished starts are behind them,
+  the mean, the spread with its reading, the 95th percentile -- or, from a count
+  that cannot support one, a row labelled "No percentile" that says how many runs it
+  needs, which is the same reason that number was never taken -- and the trimmed
+  median with its fence and the count of starts left out. `shellAuditStatisticFacts`
+  replaced `shellAuditStatisticsParagraph`; the guard that held the sentence to one
+  count per number now holds the rows to it.
+- The context paragraph is the measurement's own rows: shell, version, the start,
+  the command, the terminal (or that none was attached) and, when the model has one,
+  the note about what the start still includes.
+- The attribution paragraph is one row for the instrument (which one ran, how many
+  entries it reported, and how its order was decided, in that instrument's own
+  words), one row per named entry in the instrument's own units (`#3 _omz_source --
+  249.88 ms total, 244.60 ms self, 22 call(s), 14.48% of the profiled start`), the
+  declared cut as its own row, and the two claims the closing paragraph made as two
+  rows: what a row means and that the profiled start is a start of its own.
+  `shellAuditAttributionRow` returns the numbers now and the name is the row's other
+  half, so a long function name is never truncated to the label column.
+- The clean comparison is the two medians, the count each is made of, the difference
+  with its share, and the reading the difference supports; the trend is before, now,
+  the change, how many stored measurements it was read against, the oldest date and
+  the reading. A comparison nobody asked for is not drawn, as before.
+- The runs behind the median are one row (every completed start in the order it ran)
+  with the row that says why they are listed, then one row per start that did not
+  finish, so "left out of the median" and its reason are on the row with the count.
+- The promise is three rows: what is written (nothing), that a slow function is not by
+  itself a mistake, and where the fix belongs. The `shellAuditReadOnlyPromise`
+  constant is gone because each clause is now a row; every word of it survives.
+
+The wide Methodology card draws every area except the three the cards beside it
+already hold (the action row's plan boxes, the Results card's numbers, the Recent
+runs table), which is what keeps a row from being drawn twice on one frame. It is
+still budgeted by the rows the bands above it left; a detail taller than that budget
+now ends with ONE count of every row it kept back -- the rest of the area it stopped
+in and all of the areas after it -- because `clipCardGroups` drops a whole area
+silently and the last area is the promise: a promise that disappears without a word
+is the one thing this card may not do. At 160x50 that card is five rows (the bands
+above it are the reference's own), so it prints the method's first four rows and
+`… and 30 more`; at 200x100 the whole detail fits and it prints every row. The
+footnote is as small as the composition above it makes it -- giving that card more
+rows is a composition call this slice did not take.
+
+**The old update screen.** `updateDescription` is `factProse` of `updateAreas()`, and
+`ScreenUpdate` joined the facts registry, so the screen's existing wide composition
+draws the same rows in its detail card. The rows: what the screen reads and what it
+does not touch; the state's own `displayRows` (this build, the channel, what is
+published, when it was checked, why not, the last update); where the answer came
+from, with the URL and the cache's own file and lifetime, or -- when nothing was read
+-- the row that says the release is unknown here rather than current and the row that
+names `[r]`; and, last, either the reason this copy is not the installer's to replace
+(the one sentence `updateBlockedReason` words for the main-menu panel too) or the
+three rows of installing it (what it would replace, what the download is checked
+against, and the `.previous` copy that can be put back by hand).
+
+**The theme picker.** The picker draws its own screen and has no detail card, so it
+is not in the registry: `themePickerAreas()` feeds `themePickerDescription`, which is
+`factProse` of it. The plan is five rows (defined once in `themes/`, choosing applies
+it to every tool it can paint, it names the tools it leaves out, the cursor previews
+without applying, the switch records what it replaces so it can be undone) -- the
+paragraph that used to be the empty state's intro. The refresh review, which is the
+picker's other prose state, is rows too: the count of managed files and that nothing
+has been written yet, two rows per file under the file's own tool name (the path and
+why it was found, then where the current file is preserved first), what Undo can put
+back, and the two rows that answer it; then an area for the files that cannot be
+refreshed. The result keeps its own lines as one labelled block, because a refresh's
+outcome is the run's own rows and not a set of values the screen could split. The
+palette board, the grid, the miniature previews and the tip are untouched: the tip is
+already one row with a label and one short sentence, which is the rule this slice
+applies, and the palette is still the definition's own colours.
+
+**The documented prose exception.** Three rows per recommendation keep the model's own
+sentences, and `factArgumentLabels` now says why: a finding's argument, the evidence
+a recommendation rests on, the note a start still carries, and the reason a press, a
+comparison or a file was refused are written by the engine and worded once, so
+shortening one here would put a second wording of the same reason on screen. They are
+still one label and one value each.
+
+**Floor and arithmetic.** At 80x24 the shell startup's band prints four one-fact rows
+and declares the rest (`… and 65 more`), where it used to print the first paragraph
+and `… and 50 more`: the band is five rows either way, and what changed is that each
+visible line is a labelled fact. The frame guards are unchanged in shape -- the shell
+audit's twelve terminals, the theme picker's twelve, the update screen's twelve, the
+composition's fit -- and the two devices that keep them honest still hold: the rows
+`GetCurrentOptions` offers are on screen at every size, and no frame is taller or
+wider than the terminal that asked for it.
+
+Guards: `TestTheLastProseScreensDrawRowsAndNotParagraphs` (the four states -- shell
+audit, update, the picker's plan and its review, and its result -- every row labelled,
+every value a row and not a page, every value still in the compact body),
+`TestTheShellAuditMethodologyCardDrawsTheRowsTheBodyPrints` (the wide card draws the
+method, the context, the attribution and the promise as rows and does not repeat the
+three areas the cards beside it hold). Rewritten to read rows instead of sentences:
+`TestShellAuditAttributionNamesTheInstrumentThatRan`,
+`TestShellAuditStatisticsRowsNameEachCountOnce`,
+`TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution` (both shapes),
+`TestShellAuditMethodologyDeclaresTheLinesItCouldNotDraw` (whole at 200x100, declared
+at 160x50). Goldens updated: `TestShellAuditGolden` (80x24) and
+`TestShellAuditWideGolden` (160x50); new `TestThemeRefreshReviewGolden` (160x45) pins
+the review's rows. The theme picker's four goldens are byte-identical: the plan is
+not part of its list state, and the grid, the palette and the tip did not move.
+
+Validation was the short loop: `gofmt -l` and `go vet ./internal/tui` clean, the
+shell-audit/update/theme/golden guards, the section-wide and capture guards, the
+frame fit guards at every measured terminal, and every golden. No full suite, no
+preflight, no captures, no commit.

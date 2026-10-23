@@ -1494,6 +1494,21 @@ func TestThemePickerResultGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 80, 24, pickerGoldenMarker))
 }
 
+// TestThemeRefreshReviewGolden pins the review that writes files, which is the
+// picker's second prose state: the plan as rows -- which managed files a refresh
+// would touch and why, where each one that may be the user's is preserved first,
+// that nothing has been written yet, and what Undo can put back -- beside the rows
+// that answer it. The detail is a wide frame's because the review is where a user
+// reads before pressing a key that writes, so the frame is the one with room for it.
+func TestThemeRefreshReviewGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := themeRefreshReviewFrameCase(t)
+	m.Width, m.Height = 160, 45
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 45, "Change the dotfiles theme"))
+}
+
 // TestUtilitiesGolden pins the section itself: the rows it offers on a host with
 // a login shell and a terminal to describe, and the prose that explains what each
 // one does. The audit and the capability report are pinned on the model -- a

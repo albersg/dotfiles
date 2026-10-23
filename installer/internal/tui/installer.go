@@ -2771,43 +2771,6 @@ func themeRefreshResultParagraphs(refreshed, preserved, failed []string) []strin
 	return paragraphs
 }
 
-// themeRefreshReviewParagraphs is what the review says before anything is
-// written: exactly which files a refresh would touch, why, and where each file
-// that may be the user's would be preserved first.
-func themeRefreshReviewParagraphs(candidates []themeRefreshCandidate) []string {
-	var refreshable, blocked []themeRefreshCandidate
-	for _, cand := range candidates {
-		if cand.Problem != "" {
-			blocked = append(blocked, cand)
-			continue
-		}
-		refreshable = append(refreshable, cand)
-	}
-
-	var paragraphs []string
-	if len(refreshable) > 0 {
-		paragraphs = append(paragraphs, "Refresh will bring these managed files that are not up to date. Nothing has been written yet:")
-		for _, cand := range refreshable {
-			line := "  • " + cand.Path + " — " + cand.Reason
-			if cand.PreserveLabel != "" {
-				line += "; " + cand.PreserveLabel
-			} else {
-				line += "; it carries the dotfiles marker, so it is refreshed in place"
-			}
-			paragraphs = append(paragraphs, line)
-		}
-		paragraphs = append(paragraphs, "The previous bytes are recorded before anything is written, so Undo can put them back. "+
-			"Choose “Yes, refresh” to write; choose Cancel to leave every file as it is.")
-	}
-	if len(blocked) > 0 {
-		paragraphs = append(paragraphs, "These files cannot be refreshed and are left exactly as they are:")
-		for _, cand := range blocked {
-			paragraphs = append(paragraphs, "  • "+cand.Path+" — "+cand.Problem)
-		}
-	}
-	return paragraphs
-}
-
 // renderHerdrTheme renders the [theme.custom] overrides and the [ui] accent of
 // dotfiles-herdr/config.toml. Herdr's [theme] name is left as the built-in base
 // it is: [theme.custom] is an override layer, and the tokens this repository

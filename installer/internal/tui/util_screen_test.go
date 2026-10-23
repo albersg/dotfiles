@@ -1524,36 +1524,55 @@ func TestUtilitiesSectionOffersTheShellAuditWhereItCanMeasure(t *testing.T) {
 // start that did not finish, the command the press would run and the bound it was
 // run under, and the entry the instrument put first -- so the number can be
 // reproduced and the culprit can be acted on. The row is the winner of the
-// instrument's own ranking, and the prose carries the share: the line has room
-// for a name and a time, and a percentage in it pushed the name off a short
-// frame.
+// instrument's own ranking, and the rows carry the share: a row has room for a
+// name and the numbers the instrument printed, and a percentage in the one-line
+// row that names the winner pushed the name off a short frame.
+//
+// The detail is measured twice because the two shapes carry different halves of it:
+// the compact body prints every fact the floor's band can hold from the top of the
+// list, and the wide frame draws the same rows in the Methodology card while the
+// Results card and the action row carry the numbers it leaves out.
 func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) {
 	m := installerFrameModel(t, ScreenShellAudit)
 	m.ShellAudit = shellAuditTestState()
-	m.Width, m.Height = 200, 60
 
+	// The rows the floor's band prints and the wide card draws: the frame wraps
+	// them, so the assertions read them with their whitespace collapsed -- a phrase
+	// a line break split is one phrase again, which is what a reader sees.
+	detail := strings.Join(strings.Fields(strings.Join(m.shellAuditDescription(), " ")), " ")
+	for _, want := range []string{
+		"zsh -i -c exit",                                       // the exact command
+		"bounded by 10 s",                                      // the timeout every start ran under
+		"Runs: 5 starts",                                       // how many starts the method uses
+		"the median: the middle start",                         // the number the plan reports
+		"zsh/zprof, one further start, 6 entries",              // how the attribution was taken
+		"heaviest by the time each spent on itself",            // what the order means
+		"_omz_source",                                          // the list, not only its head
+		"1 more were profiled and are not named here",          // the declared cut
+		"The starts: 977 ms, 915 ms, 872 ms, 932 ms",           // every start behind the median
+		"no startup file is written and no plugin is disabled", // the read-only promise
+	} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("the shell startup screen's detail does not show %q:\n%s", want, detail)
+		}
+	}
+
+	m.Width, m.Height = 200, 100
 	view := ansiEscape.ReplaceAllString(m.View(), "")
-	// The prose wraps to the width it is drawn at, so the assertions read it with
-	// its whitespace collapsed: a phrase a line break split is one phrase again,
-	// which is what a reader sees.
 	flat := strings.Join(strings.Fields(view), " ")
 	for _, want := range []string{
-		"zsh -i -c exit",                                  // the exact command
-		"bounded by 10 s",                                 // the timeout every start ran under
-		"The plan runs 5 such starts",                     // how many starts the method uses
+		"bounded by 10 s",                                 // the bound, in the Methodology card
 		"Median of 4 of 5 runs: 924 ms",                   // the median, with the count it covers
 		"Range: 872 ms to 977 ms",                         // the spread
 		"1 of 5 runs did not finish: 1 timed out at 10 s", // the timeout, as its own result
 		"Heaviest entry: compdump (725 ms self, 1 call(s))",
-		"zsh/zprof profiled one further start",        // how the attribution was taken
-		"in zprof's own order",                        // what the order means
-		"_omz_source",                                 // the list, not only its head
-		"1 more were profiled and are not named here", // the declared cut
-		"The starts, in the order they ran: 977 ms, 915 ms, 872 ms, 932 ms",
-		"Nothing here is changed", // the read-only promise
+		"zsh/zprof, one further start, 6 entries",              // the instrument, in its own terms
+		"_omz_source",                                          // the list, not only its head
+		"1 more were profiled and are not named here",          // the declared cut
+		"no startup file is written and no plugin is disabled", // the promise, under its own divider
 	} {
 		if !strings.Contains(flat, want) {
-			t.Errorf("the shell startup screen does not show %q:\n%s", want, view)
+			t.Errorf("the wide shell startup screen does not show %q:\n%s", want, view)
 		}
 	}
 	// The sixth function zprof reported is past the named cut, and the screen says
@@ -1561,23 +1580,26 @@ func TestScreenShellAuditShowsTheMethodTheMedianAndTheAttribution(t *testing.T) 
 	if strings.Contains(flat, "compaudit") {
 		t.Errorf("the screen named a function past the declared cut:\n%s", view)
 	}
+	if strings.Contains(detail, "compaudit") {
+		t.Errorf("the detail named a function past the declared cut:\n%s", detail)
+	}
 }
 
 // TestShellAuditMethodologyDeclaresTheLinesItCouldNotDraw is the other half of the
-// paragraph guard above: the wide frame's Methodology card draws the method and the
-// attribution from the compact body's own words, and where the rows run out it ends
-// with the count of the lines it could not draw rather than a sentence cut in half.
-// The two sizes are the reference's own wide frame and the size the paragraph guard
-// measures, so the test states the relation instead of a number: the same state
-// either fits whole or says how much it kept back, and neither frame is taller than
-// the terminal that asked for it.
+// row guard above: the wide frame's Methodology card draws the method, the context,
+// the attribution and the promise from the same rows the compact body prints, and
+// where the rows run out it ends with the count of the lines it could not draw rather
+// than a sentence cut in half. The two sizes are the reference's own wide frame and
+// the taller frame that holds the whole detail, so the test states the relation
+// instead of a number: the same state either fits whole or says how much it kept
+// back, and neither frame is taller than the terminal that asked for it.
 func TestShellAuditMethodologyDeclaresTheLinesItCouldNotDraw(t *testing.T) {
 	tests := []struct {
 		name          string
 		width, height int
 		wantCut       bool
 	}{
-		{"200x60 holds the whole method", 200, 60, false},
+		{"200x100 holds the whole method", 200, 100, false},
 		{"160x50 declares what it kept back", 160, 50, true},
 	}
 
@@ -1603,8 +1625,8 @@ func TestShellAuditMethodologyDeclaresTheLinesItCouldNotDraw(t *testing.T) {
 			if !cut {
 				// Nothing kept back: the attribution's rows and the promise are all there,
 				// which is what makes the silence about a cut honest rather than lucky.
-				for _, want := range []string{"in zprof's own order", "_omz_source",
-					"1 more were profiled and are not named here", "Nothing here is changed"} {
+				for _, want := range []string{"heaviest by the time each spent on itself", "_omz_source",
+					"1 more were profiled and are not named here", "no startup file is written and no plugin is disabled"} {
 					if !strings.Contains(flat, want) {
 						t.Errorf("the card declares no cut but does not show %q:\n%s", want, view)
 					}

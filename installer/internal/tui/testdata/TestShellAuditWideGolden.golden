@@ -40,11 +40,11 @@
                                                                                                                                                                 
   ╭─ Methodology ───────────────────────────────────────────────────────────────────────────────────────────────────────────────── How the measurement works ╮  
   │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│  
-  │ • zsh is started the way a terminal starts it -- `zsh -i -c exit`, each start bounded by 10 s -- so the number describes the start you wait through when │  
-  │   you open a terminal. The plan runs 5 such starts, and the median is the middle one: not an average, and not a single run.                              │  
-  │ • zsh/zprof profiled one further start and reported 6 functions, heaviest by the time each spent on itself, in zprof's own order: 1. compdump -- 725.25  │  
-  │   ms total, 725.25 ms self, 1 call(s), 42.01% of the profiled start. 2. compdef -- 306.38 ms total, 306.38 ms self, 1027 call(s), 17.75% of the profiled │  
-  │ … and 9 more                                                                                                                                             │  
+  │   The press          `zsh -i -c exit`                                                                                                                    │  
+  │   Each start         bounded by 10 s                                                                                                                     │  
+  │   The number         the median: the middle start, not an average and not a single run                                                                   │  
+  │   It describes       the start you wait through when you open a terminal                                                                                 │  
+  │ … and 30 more                                                                                                                                            │  
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯  
   ● Ready ───────────────────────────────────────────────── Median 924 ms over 4 of 5 runs · fastest 872 ms ──────────────────────────────────────────────────  
                                                     ↑/k up • ↓/j down • [s] measure • [m/n/w/b] what to measure • [h/r] history / recommendations • [Esc] back  [49A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

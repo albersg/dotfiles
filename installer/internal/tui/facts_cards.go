@@ -226,6 +226,12 @@ func (m Model) sectionScreenAreas() ([]factArea, bool) {
 		return m.networkAreas(), true
 	case ScreenDiskCleaner:
 		return m.diskCleanerAreas(), true
+	case ScreenUpdate:
+		// The older update screen draws through the section's own wide composition
+		// (section_wide.go), so its detail card reads these areas like every other
+		// converted screen's. The update center beside it is not here: its detail is
+		// the run's live surface, which has its own shapes at both frames.
+		return m.updateAreas(), true
 	}
 	return nil, false
 }

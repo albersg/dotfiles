@@ -1,0 +1,45 @@
+[?25l[?2004h                                                                                                                                                                
+   Utilities                                                                                                                                         dev build  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
+  Change the dotfiles theme                                               ╭─ The palette ────────────────────────────────────────────────────────────────────╮  
+  Would touch: 2 managed files that are not up to date; nothing has been  │──────────────────────────────────────────────────────────────────────────────────│  
+  written yet.                                                            │ Move the cursor onto a theme to see the palette it would paint.                  │  
+  zsh: /home/testuser/.zshrc — no dotfiles ownership marker.              ╰──────────────────────────────────────────────────────────────────────────────────╯  
+  zsh: your current file is preserved first in /home/testuser/.zshrc.d/.                                                                                        
+  herdr: /home/testuser/.config/herdr/config.toml — no dotfiles                                                                                                 
+  ownership marker.                                                                                                                                             
+  herdr: your current file is preserved first as                                                                                                                
+  /home/testuser/.config/herdr/config.toml.bak-dotfiles-<stamp>.                                                                                                
+  Undo: the previous bytes are recorded before anything is written, so                                                                                          
+  Undo can put them back.                                                                                                                                       
+  To write: choose “Yes, refresh”.                                                                                                                              
+  To leave it: choose Cancel: every file stays as it is.                                                                                                        
+  ghostty: /home/testuser/.config/ghostty/config — its content is not a                                                                                         
+  recognizable dotfiles theme block.                                                                                                                            
+                                                                                                                                                                
+  ▸ [y] Yes, refresh 2 file(s)                                                                                                                                  
+    [n] Cancel                                                                                                                                                  
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+  ● Preview mode ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+                                                                                              ↑/k up • ↓/j down • [y] refresh the files • [n] leave them alone  ]2;dotfiles Installer[44A [K[J[2K[?2004l[?25h[?1002l[?1003l[?1006l

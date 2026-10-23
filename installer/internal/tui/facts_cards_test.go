@@ -39,6 +39,7 @@ func convertedScreens(t *testing.T) []convertedScreen {
 		{"wsl-advisor", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLAdvisor) }, "8.0 GiB total"},
 		{"wsl-benchmark", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLBenchmark) }, "measured from top to bottom"},
 		{"wsl-migration", func(t *testing.T) Model { return wslAdvisorFrameModel(t, ScreenWSLMigration) }, "copy /windir"},
+		{"update", updateFrameCase, "This build"},
 	}
 }
 
@@ -120,17 +121,31 @@ func TestEveryConvertedScreenKeepsEveryFactInBothShapes(t *testing.T) {
 // the shape this pass exists to remove.
 const factValueRowMeasure = 140
 
-// factArgumentLabels are the one kind of value that stays long: a finding's own
-// argument -- why it matters, what acting is worth, what to do. Those sentences are
-// the model's own measured claims (wsladvisor.go writes them), and cutting one to fit
-// a row would either drop a fact or invent a shorter one. They are still rows -- one
-// label and one value each, wrapped in the card's column -- which is what the pass was
-// for; what they are not is a row that could be split further without losing the
-// argument the finding exists to make.
+// factArgumentLabels are the one kind of value that stays long: the model's own
+// sentence, where a row has no datum to hold. A finding's argument -- why it matters,
+// what acting is worth, what to do -- is a measured claim (wsladvisor.go writes it),
+// and cutting one to fit a row would either drop a fact or invent a shorter one. The
+// shell startup and the old update screen state the same kind of value: the reason a
+// press was refused, the note a start still carries, the evidence a recommendation
+// rests on, and the reason a file is not the installer's to replace. Those sentences
+// are written by the engine (shellaudit_profile.go, update_check.go, install_review)
+// and worded once, so shortening one here would put a second wording of the same
+// reason on screen. They are still rows -- one label and one value each, wrapped in
+// the card's column -- which is what the pass was for; what they are not is a row
+// that could be split further without losing the claim they exist to make.
 var factArgumentLabels = map[string]bool{
 	"Why it matters": true,
 	"Benefit":        true,
 	"What to do":     true,
+	// The engine's own reasons and notes.
+	"Still included":                 true,
+	"Why nothing is named":           true,
+	"Could not take the measurement": true,
+	"No trend":                       true,
+	"Why":                            true,
+	"The last one said":              true,
+	// A recommendation's evidence: the instrument's own rows, in its own order.
+	"It comes from": true,
 }
 
 // TestEveryConvertedRowIsALabelAndAShortValue is the wall-of-text guard: a fact row
@@ -375,5 +390,161 @@ func TestFactLinesKeepABlocksOwnRows(t *testing.T) {
 	}
 	if !strings.HasPrefix(strings.TrimRight(block[labelAt+1], " "), "  ") {
 		t.Errorf("the block's first line is not at the value column:\n%s", joined)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The last three prose screens
+// ---------------------------------------------------------------------------
+
+// proseScreen is one of the three screens this pass finished, with the fixtures that
+// fill it and the function that returns the detail the card and the body read.
+type proseScreen struct {
+	name     string
+	build    func(*testing.T) Model
+	areas    func(Model) []factArea
+	describe func(Model) []string
+}
+
+// proseScreens are the screens whose detail was still paragraphs: the shell
+// startup's method and attribution, the older update screen's release facts, and the
+// theme picker's plan and refresh review. The picker is here twice because its two
+// prose states -- a picker with themes to choose and the review that writes files --
+// are different screens to the reader.
+func proseScreens() []proseScreen {
+	shell := func(m Model) []factArea { return m.shellAuditAreas() }
+	update := func(m Model) []factArea { return m.updateAreas() }
+	picker := func(m Model) []factArea { return m.themePickerAreas() }
+	return []proseScreen{
+		{
+			name:     "shell-audit",
+			build:    shellAuditFrameCase,
+			areas:    shell,
+			describe: func(m Model) []string { return m.shellAuditDescription() },
+		},
+		{
+			name:     "update",
+			build:    updateFrameCase,
+			areas:    update,
+			describe: func(m Model) []string { return m.updateDescription() },
+		},
+		{
+			name:     "theme-picker",
+			build:    themePickerFrameCase,
+			areas:    picker,
+			describe: func(m Model) []string { return m.themePickerDescription() },
+		},
+		{
+			name:     "theme-picker-review",
+			build:    themeRefreshReviewFrameCase,
+			areas:    picker,
+			describe: func(m Model) []string { return m.themePickerDescription() },
+		},
+		{
+			name: "theme-picker-result",
+			build: func(t *testing.T) Model {
+				m := themeRefreshReviewFrameCase(t)
+				m.ThemeRefreshDone = true
+				m.ThemeRefreshResult = themeRefreshResultParagraphs(
+					[]string{"/home/testuser/.zshrc"},
+					[]string{"/home/testuser/.zshrc.d/"},
+					nil)
+				return m
+			},
+			areas:    picker,
+			describe: func(m Model) []string { return m.themePickerDescription() },
+		},
+	}
+}
+
+// TestTheLastProseScreensDrawRowsAndNotParagraphs is the wall-of-text guard for the
+// three screens this pass finished: every area of their detail is rows, every row
+// carries the label that names it, its value reads as a row rather than a paragraph,
+// and the compact body the floor draws is derived from the same areas -- so a screen
+// cannot state a fact in the card that its body never says, and the sentences that
+// are left are the model's own (factArgumentLabels), never a template.
+func TestTheLastProseScreensDrawRowsAndNotParagraphs(t *testing.T) {
+	for _, c := range proseScreens() {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			m := c.build(t)
+			areas := c.areas(m)
+			if len(areas) == 0 {
+				t.Fatalf("%s states no area", c.name)
+			}
+
+			body := squash(strings.Join(c.describe(m), " "))
+			facts := 0
+			for _, area := range areas {
+				if len(area.Facts) == 0 {
+					t.Errorf("%s draws an area named %q with no row under it", c.name, area.Name)
+				}
+				for _, fact := range area.Facts {
+					if strings.TrimSpace(fact.Value) == "" {
+						continue
+					}
+					facts++
+					if strings.TrimSpace(fact.Label) == "" && len(area.Facts) > 1 {
+						// A row without a label is the screen's own sentence, and a screen
+						// states one of those only as the whole of an area (the reason a
+						// utility cannot run, a read still in flight).
+						t.Errorf("%s draws %q in an area of %d rows without the label that names it",
+							c.name, fact.Value, len(area.Facts))
+						continue
+					}
+					if strings.Contains(fact.Value, "\n") || factArgumentLabels[fact.Label] {
+						continue
+					}
+					if n := len([]rune(fact.Value)); n > factValueRowMeasure {
+						t.Errorf("%s draws a paragraph under %q (%d runes, want <= %d): the row is not a page",
+							c.name, fact.Label, n, factValueRowMeasure)
+					}
+					if !strings.Contains(body, squash(fact.Value)) {
+						t.Errorf("%s drops the value %q from its compact body:\n%s", c.name, fact.Value, body)
+					}
+				}
+			}
+			if facts == 0 {
+				t.Fatalf("%s states no row", c.name)
+			}
+		})
+	}
+}
+
+// TestTheShellAuditMethodologyCardDrawsTheRowsTheBodyPrints is the wide half of the
+// guard above: the frame's Methodology card is drawn from the same areas the floor's
+// band prints, so the method, the context, the attribution and the promise a user
+// reads at 200x100 are the rows the whole screen states -- and the areas the cards
+// beside it already draw (the action row's plan, the Results card, the Recent runs
+// table) are not drawn twice.
+func TestTheShellAuditMethodologyCardDrawsTheRowsTheBodyPrints(t *testing.T) {
+	m := shellAuditFrameCase(t)
+	m.Width, m.Height = 200, 100
+	m.Animating = false
+
+	view := ansiEscape.ReplaceAllString(m.View(), "")
+	flat := squash(view)
+	for _, want := range []string{
+		"The press",     // the method
+		"Each start",    // the bound
+		"The number",    // what the median means
+		"Shell",         // the context
+		"zsh/zprof",     // the attribution
+		"_omz_source",   // the attributed rows, past the first
+		"Reading a row", // what the numbers mean
+		"no startup file is written and no plugin is disabled", // the promise
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("the wide shell startup's Methodology card does not draw %q:\n%s", want, view)
+		}
+	}
+	for _, gone := range []string{
+		"Keys",                // the plan's keys are the action boxes' labels
+		"Behind these",        // the statistics are the Results card
+		"Why they are listed", // the starts are the Recent runs table
+	} {
+		if strings.Contains(flat, gone) {
+			t.Errorf("the wide shell startup draws %q twice: the card beside the list already holds it:\n%s", gone, view)
+		}
 	}
 }
