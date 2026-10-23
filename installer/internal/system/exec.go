@@ -264,6 +264,71 @@ func RunSudo(command string, opts *ExecOptions) *ExecResult {
 	return Run("sudo "+command, opts)
 }
 
+// RunTerminal runs a command with this process's own standard streams attached,
+// so the child can ask the person a question on the terminal the run was started
+// from.
+//
+// It is the one runner here that gives the terminal away, and it exists because
+// one command genuinely has no other route: sudo asking for a password. The
+// captured runners hand the child pipes for standard input and output, because a
+// step's output belongs in the activity log -- and a prompt written into a pipe is
+// a question nobody is asked. A caller that must prompt has to reach the real
+// terminal, so this runner attaches it and captures nothing.
+//
+// WorkDir and Env are honoured as they are everywhere else. Timeout is not: a
+// prompt is the person's to answer, and a deadline would end it mid-question.
+func RunTerminal(command string, opts *ExecOptions) *ExecResult {
+	if opts == nil {
+		opts = &ExecOptions{}
+	}
+
+	start := time.Now()
+	result := &ExecResult{
+		Command: command,
+	}
+
+	var cmd *exec.Cmd
+	if isTermux() {
+		executable, args := parseCommand(command)
+		cmd = exec.Command(executable, args...)
+	} else {
+		cmd = exec.Command(GetShell(), "-c", command)
+	}
+
+	if opts.WorkDir != "" {
+		cmd.Dir = opts.WorkDir
+	}
+
+	cmd.Env = os.Environ()
+	if len(opts.Env) > 0 {
+		cmd.Env = append(cmd.Env, opts.Env...)
+	}
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		exitCode := 1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		result.ExitCode = exitCode
+		result.Error = &ExecError{
+			Command:  command,
+			ExitCode: exitCode,
+			Wrapped:  err,
+		}
+	}
+
+	if cmd.ProcessState != nil {
+		result.ExitCode = cmd.ProcessState.ExitCode()
+	}
+	result.Duration = time.Since(start)
+
+	return result
+}
+
 // RunBrew runs a brew command
 func RunBrew(args string, opts *ExecOptions) *ExecResult {
 	brewPath := GetBrewPrefix() + "/bin/brew"

@@ -2219,3 +2219,58 @@ Validation was the short loop: `gofmt -l` and `go vet ./internal/tui` clean, the
 shell-audit/update/theme/golden guards, the section-wide and capture guards, the
 frame fit guards at every measured terminal, and every golden. No full suite, no
 preflight, no captures, no commit.
+
+L37. The dependency step's sudo credential, in the tree (uncommitted). The user
+reported that installing the deps fails with "sudo password is required".
+
+**The failing path, measured.** The dependency step is planned `Interactive`, so
+an interactive run never reaches `stepInstallDeps`: it runs `getDepsScript`
+through the captured executor, and the step loop asks for the credential through
+`sudoPrimer`/`sudoTerminalPrimer` before the first step that needs root. The
+step itself is what the **scripted** route executes -- `--non-interactive` ->
+`runInstallSteps` -> `executeStep("deps")` -> `stepInstallDeps` -- and that route
+never primed anything. Its first command is `sudo -n apt-get update` through
+`runSudoWithLogs`, which hands the child pipes for stdin and stdout, so sudo has
+no terminal to ask on and answers "a password is required"
+(`sudoPasswordUnavailable` is the wrapper that turned it into "sudo could not ask
+for a password in this run"). The order is `probe`, `ask`, then the commands:
+the ask precedes the command it makes possible, and it is the same ask the run
+makes.
+
+**The wiring.** One seam, two forms of the handover, and the step uses it.
+`sudoCredentialCached` is the first half of the run's request as a plain call
+(`sudo -n -v`), shared with `defaultSudoPrimer` so "sudo already has what it
+needs" is one question with one implementation; a machine that answers it is
+never prompted. `sudoTerminalAsk` is `sudo -v` with the terminal attached, run in
+place: the form a caller outside the program can use, where `sudoTerminalPrimer`
+is the same command through `tea.ExecProcess` for a caller that owns the screen.
+`system.RunTerminal` is the runner that attaches the process's own streams and
+captures nothing, which is exactly what the capturing runners cannot do. The
+step asks only when its **plan** needs root (`platformInstallPlan.needsRoot`),
+before the first command and never because of the step's name, and it asks at
+most once per run: a run that already made its request -- cached or refused -- is
+left alone, and a refused ask does not abort the step, which still reports the
+missing credential through `sudo -n` with the commands to run by hand. Nothing
+is stored and no password passes through the program.
+
+Guards: `TestTheDependencyStepAsksForTheCredentialBeforeItsFirstRootCommand` (the
+reported failure: exactly one ask, before the first root command, and the model
+records it), `TestTheCachedCredentialIsNeverAskedFor` (a usable credential is
+never prompted for), `TestTheDependencyStepDoesNotAskTwice` (the step loop's
+request is not repeated), `TestTheDependencyStepAsksNothingUnderDryRun`,
+`TestAUserScopedPlanAsksForNothing` (Homebrew and pkg ask for nothing),
+`TestARefusedCredentialDoesNotAbortTheDependencyStep`,
+`TestTheDependencyStepAsksTheSameWayTheRunDoes` (a fake `sudo` on PATH: the probe
+is given `-n -v` and no `-S`, the ask exactly `-v`),
+`TestTheTerminalAskFailsWhereThereIsNoTerminal`, `TestTheRootPlanIsTheOneThatAsks`
+(the plan's answer and `sudoCommand()` agree), and in `internal/system`
+`TestRunTerminalGivesTheCommandTheTerminalAndCapturesNothing`,
+`TestRunTerminalReportsTheCommandsFailure` and
+`TestRunTerminalKeepsTheCallersDirectory`. `withDepsMocks` now stubs both seams so
+no existing dependency test can reach real sudo.
+
+No golden moved: the ask speaks only in the scripted route, and its line goes
+through `SendLog`, which is verbose-only there. Validation was the short loop:
+`make check` (gofmt, `go vet ./...`, and the changed packages
+`./internal/system ./internal/tui`, every golden included) passed. No full
+suite, no preflight, no commit.

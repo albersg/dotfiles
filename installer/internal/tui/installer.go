@@ -5482,6 +5482,19 @@ func stepInstallDeps(m *Model) error {
 	deps, debianGaps := depsForInstall(m)
 	plan := planPlatformInstall(m, deps)
 
+	// The credential comes before the first command that needs it, and only when
+	// the plan runs one: the scripted route reaches this step without the step
+	// loop's one request, and its `sudo -n` has nothing cached to read. A plan that
+	// installs through Homebrew or pkg is user-scoped, so it asks for nothing. A
+	// refused ask does not abort the step -- the command reports the missing
+	// credential where the user can read it, exactly as a run that was never primed
+	// did, and dependencyInstallError names the commands to run by hand.
+	if plan.needsRoot() {
+		if err := m.primeSudoForStep(); err != nil {
+			SendLog(stepID, "⚠️  "+err.Error()+". A command that needs root will report it.")
+		}
+	}
+
 	if plan.Manager == "apt-get" {
 		logDebianUnavailable(stepID, debianGaps)
 	}
@@ -6675,6 +6688,22 @@ func planPlatformInstall(m *Model, packages platformPackages) platformInstallPla
 		return platformInstallPlan{Manager: "brew", Packages: packages.Brew}
 	}
 	return platformInstallPlan{}
+}
+
+// needsRoot reports whether a plan runs its command through sudo.
+//
+// The answer is read from the plan rather than re-derived from the host, so the
+// credential request and the command it makes possible cannot disagree: the
+// native managers below are exactly the ones nativeCommand spells a sudo line for,
+// and the user-scoped routes (Homebrew and Termux's pkg) need no credential at
+// all. A step asks for the credential when its plan needs root, never because of
+// its name.
+func (p platformInstallPlan) needsRoot() bool {
+	switch p.Manager {
+	case "pacman", "dnf", "apt-get":
+		return true
+	}
+	return false
 }
 
 // nativeCommand returns the command the native managers run through sudo.

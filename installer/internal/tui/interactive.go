@@ -27,6 +27,18 @@ type needsExecProcessMsg struct {
 // a test can prove the run asks exactly once without invoking sudo.
 var sudoPrimer = defaultSudoPrimer
 
+// sudoCredentialCached is that same first half as a plain call: it reports
+// whether sudo already holds a credential it can use without asking. The run's
+// primer and a step that has to make sure of the same thing both read it here, so
+// "sudo already has what it needs" is one question with one implementation --
+// `sudo -n -v`, which never prompts and fails exactly where a password would be
+// required. It is a variable so a test can answer it without invoking sudo.
+var sudoCredentialCached = defaultSudoCredentialCached
+
+func defaultSudoCredentialCached() error {
+	return system.Run(nonInteractiveSudo("-v"), nil).Error
+}
+
 // defaultSudoPrimer asks sudo whether a credential is already cached, with
 // `sudo -n -v`, which never prompts: it succeeds where sudo is configured not to
 // want a password -- a NOPASSWD rule, common in containers -- and fails where one
@@ -35,7 +47,7 @@ var sudoPrimer = defaultSudoPrimer
 // installer's own password screen up instead of a terminal handover.
 func defaultSudoPrimer() tea.Cmd {
 	return func() tea.Msg {
-		if err := exec.Command("sudo", "-n", "-v").Run(); err != nil {
+		if err := sudoCredentialCached(); err != nil {
 			return sudoNeedsPasswordMsg{}
 		}
 		return sudoPrimedMsg{}
@@ -50,15 +62,38 @@ func defaultSudoPrimer() tea.Cmd {
 // than a dead end.
 var sudoTerminalPrimer = defaultSudoTerminalPrimer
 
+// sudoTerminalCommand is the command every form of the terminal ask runs. `-v`
+// refreshes the cached credential without running anything as root, which is all
+// a step's `sudo -n` needs, so the ask itself is spelled once and both handovers
+// ask the same question.
+const sudoTerminalCommand = "sudo"
+
 // defaultSudoTerminalPrimer runs `sudo -v` with the terminal attached. It is now
 // the one moment a run gives the terminal to a child process, and it happens only
 // when the user asks for it: sudo writes the cached credential it later reads
 // non-interactively, and the interface comes straight back to the screen.
 func defaultSudoTerminalPrimer() tea.Cmd {
-	c := exec.Command("sudo", "-v")
+	c := exec.Command(sudoTerminalCommand, "-v")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return sudoPrimedMsg{err: err}
 	})
+}
+
+// sudoTerminalAsk is the same handover in the form a caller *outside* the program
+// can use: `sudo -v` with this process's terminal attached, waited on in place.
+//
+// The program's form is tea.ExecProcess because the screen has to be released and
+// restored around the child; a caller that is not inside the program has no screen
+// to release and nothing to restore, so attaching the terminal it already owns is
+// the whole of the handover. Both run the command above, which is why the ask,
+// its prompt and the credential it caches are one thing rather than two.
+var sudoTerminalAsk = defaultSudoTerminalAsk
+
+// defaultSudoTerminalAsk runs `sudo -v` on the terminal this process inherited and
+// waits for it, which is the whole of the handover when there is no screen to
+// release. Its error is sudo's refusal, and it is reported rather than retried.
+func defaultSudoTerminalAsk() error {
+	return system.RunTerminal(sudoTerminalCommand+" -v", nil).Error
 }
 
 // sudoPrimedMsg reports the outcome of the single credential request.
@@ -96,6 +131,58 @@ func sudoRefreshCmd() tea.Cmd {
 	return func() tea.Msg {
 		return sudoRefreshedMsg{err: sudoRefresher()}
 	}
+}
+
+// primeSudoForStep makes sure a cached credential exists before a step runs a
+// root command through the captured executor, and it exists because a step can be
+// reached without the step loop.
+//
+// The loop asks once, before the first step that needs root, and the steps it
+// runs then spell their root commands with `sudo -n`. That covers every step of an
+// interactive run. It does not cover the scripted route: `--non-interactive`
+// executes the dependency step directly, so no request was ever made, and its
+// first `sudo -n apt-get update` came back with "a password is required" on a
+// machine that would have asked for one -- which is the failure this closes.
+//
+// The order is the run's, and so is the means: `sudo -n -v` first, because a
+// machine whose sudo already has what it needs must never be prompted, and `sudo
+// -v` with the terminal attached only when it does not, so the user types the
+// password where sudo reads it. Nothing is stored, and no password travels through
+// this program: it goes from the person to sudo, on the terminal sudo owns.
+//
+// It asks at most once per run. A run that already made its request -- succeeded
+// or failed -- is left alone, because a failed ask that repeats is the loop the
+// run avoids, and a step without the credential reports itself through `sudo -n`,
+// which is the report the user can act on.
+//
+// The ask attaches the terminal, so it belongs to a caller that owns it: the
+// scripted route. Inside the program the step loop has already made the request
+// through sudoTerminalPrimer, and the flags this reads are what stop a second one.
+func (m *Model) primeSudoForStep() error {
+	if dryRun() {
+		return nil
+	}
+	if m != nil && (m.SudoPrimed || m.SudoPrimeAttempted) {
+		return nil
+	}
+	if m != nil {
+		m.SudoPrimeAttempted = true
+	}
+
+	if err := sudoCredentialCached(); err == nil {
+		if m != nil {
+			m.SudoPrimed = true
+		}
+		return nil
+	}
+
+	if err := sudoTerminalAsk(); err != nil {
+		return fmt.Errorf("the administrator credential was not cached: %w", err)
+	}
+	if m != nil {
+		m.SudoPrimed = true
+	}
+	return nil
 }
 
 // runStepScript is the seam that runs a generated step script through the
