@@ -1858,12 +1858,16 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Tab cycles the panels of a screen that offers more than one, wrapping
-	// around. It is taken here, before the per-screen dispatch, but only when
-	// there is a panel to reach: a screen that offers one panel or none does not
-	// consume the key, so whatever Tab means to it -- the trainer's exercise
-	// screens read it as "hint" -- is left exactly as it was. The key does nothing
-	// on a single-panel screen, which is why no such screen advertises it.
-	if key == "tab" {
+	// around. It is taken here, before the per-screen dispatch, but only when the
+	// screen has no meaning of its own for the key: the welcome screen's body and
+	// footer promise "[Tab] menu", so its own dispatch below has to see the press
+	// and the panel walk must not take it first. It used to: the welcome screen
+	// offers three panels, so Tab was swallowed here and drew nothing at all on the
+	// wide home, which draws its cards rather than a panel -- the screen advertised
+	// a press that did nothing. A screen that offers one panel or none does not
+	// consume the key either, so whatever Tab means to it -- the trainer's exercise
+	// screens read it as "hint" -- is left exactly as it was.
+	if key == "tab" && m.Screen != ScreenWelcome {
 		if next, moved := nextPanelIndex(m.panelsFor(), m.PanelIndex); moved {
 			m.PanelIndex = next
 			return m, nil
@@ -1884,8 +1888,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "s", "tab":
 			// The start key opens the menu where the run begins, and Tab does the
-			// same: the reference's own footer offers "[Tab] menu", and a key the
-			// screen advertises has to do what it says.
+			// same: the reference's own footer offers "[Tab] menu", and the body says
+			// "or explore the menu with [Tab]". A key the screen advertises has to do
+			// what it says, at every size the screen is drawn at -- the floor's footer
+			// names the menu for it too (welcomeHints).
 			m.Screen = ScreenMainMenu
 			m.Cursor = 0
 		case "q":

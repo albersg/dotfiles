@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/albersg/dotfiles/installer/internal/system"
 )
 
@@ -32,6 +30,24 @@ const (
 	homeExploreHint = "or explore the menu with [Tab]"
 )
 
+// The composition's two measures. They are named here rather than written at
+// each block, because the screen's whole point is that the space between two
+// things is ONE space: the rows above both columns are the same rows, and a gap
+// between the lockup and the tagline is the same gap as the one between two
+// cards. The gutter between the columns is not a third measure -- it is
+// layoutGutter, the columns' own gutter on every two-column screen.
+const (
+	// homeTopMargin is the blank rows both columns open with, so the two columns
+	// start on one row and neither block sits against the header's rule.
+	homeTopMargin = 1
+
+	// homeBlockGap is the gap between two blocks of a column, in rows. It is ONE
+	// measure for the whole screen -- the rows under the lockup are the rows
+	// between two cards -- so the composition has a rhythm instead of each block
+	// floating the distance its own block asked for.
+	homeBlockGap = 1
+)
+
 // homeWide reports whether the reference's two-column home fits the frame. It is
 // a row budget as well as a width: below it the cards would have to drop a fact,
 // which is the compact dashboard's job.
@@ -42,7 +58,9 @@ func (m Model) homeWide(l layout) bool {
 	return installerBodyRows(m.Height, m.footerReserveRows(l.Inner, m.welcomeHints())) >= 30
 }
 
-// welcomeHints is the home screen's footer: the two presses that move it.
+// welcomeHints is the home screen's footer: the press that starts the run, the one
+// that leaves, and the one that opens the menu. It is the screen's footer at both
+// shapes, so the wide home and the 80x24 floor cannot promise different keys.
 func (m Model) welcomeHints() []installerHint {
 	return []installerHint{hintStart, hintQuit, {"[Tab]", "menu"}}
 }
@@ -50,134 +68,149 @@ func (m Model) welcomeHints() []installerHint {
 // renderHomeWide draws the reference's home screen. The body is composed from
 // the two columns before the frame sees it, so the frame still owns the header,
 // the status rule, the footer and the creature's rows.
+//
+// The composition is read from its top: both columns open on the same blank rows
+// (homeTopMargin), one gutter separates their blocks (homeBlockGap), and the
+// columns' content is anchored under the frame's rule instead of being centred in
+// the frame. Centring was the void: a composition half the height of the frame
+// spent the difference as two bands of space, one above the lockup and one under
+// the cards, which reads as content that could not decide where to sit. The tail
+// the composition does not spend belongs to the creature's reserved block, at the
+// bottom, where the reference draws the pet.
 func (m Model) renderHomeWide(l layout) string {
 	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, m.welcomeHints()))
-	leftWidth, rightWidth := l.Left, l.Right
-	left := m.homeLeftColumn(leftWidth)
-	right := m.homeRightColumn(rightWidth, budget)
-	// The spacing is the first thing given back when the column is one row too
-	// tall: the blank rows between the lockup, the cards and the creature go before
-	// the creature does, and a block that still does not fit is cut rather than
-	// allowed to push the frame's header off the terminal.
-	for len(left) > budget {
-		cut := -1
-		for i := len(left) - 2; i >= 0; i-- {
-			if left[i] == "" {
-				cut = i
-				break
-			}
-		}
-		if cut < 0 {
-			break
-		}
-		left = append(left[:cut], left[cut+1:]...)
+
+	// The creature's block is the frame's, so it is taken off the rows the columns
+	// may use before either column is measured: the pet keeps the rows the terminal
+	// gave it whether or not a column wanted them.
+	rows := budget - m.companionBlockRows(l.Inner)
+	if rows < 1 {
+		rows = budget
 	}
-	if len(left) > budget {
-		left = left[:budget]
-	}
-	return m.frameWithPanels(m.headerName(), "", composeColumns(left, right, l), m.welcomeHints(), nil)
+
+	left := stackHomeBlocks(m.homeLeftBlocks(l.Left), rows)
+	right := stackHomeBlocks(m.homeRightBlocks(l.Right), rows)
+
+	// The composed rows are the screen's rows, so the frame's own placement leaves
+	// them where they are and the creature takes the tail the columns gave back.
+	body := placeHomeBody(composeColumns(left, right, l), budget)
+	return m.frameWithPanels(m.headerName(), "", body, m.welcomeHints(), nil)
 }
 
-// homeLeftColumn is the lockup and everything under it, measured against the
-// column it will occupy. The creature is drawn into the column's own bottom rows
-// so it can sit beside the right column, as the reference draws it.
-func (m Model) homeLeftColumn(width int) []string {
-	var body []string
-
-	if m.Height >= 46 && width >= wordmarkWidth() {
-		body = append(body, renderEmblem(logo)...)
-		body = append(body, "")
-		body = append(body, renderWordmark(dotfilesText)...)
-	} else {
-		body = append(body, renderEmblem(compactLogo)...)
-		// The blank between the emblem and the wordmark is the full lockup's own
-		// spacing; the compact lockup spends it on the creature instead.
-		body = append(body, renderWordmark("dotfiles")...)
-	}
-
-	body = append(body, CenterHorizontally(MutedStyle.Render(truncate(homeTagline, width)), width))
-	body = append(body, CenterHorizontally(SubtitleStyle.Render(truncate(homeTaglineWarm, width)), width))
-	body = append(body, "")
-
-	if band := m.homeMachineCards(width); len(band) > 0 {
-		body = append(body, band...)
-	}
-	body = append(body, "")
-
-	if greeting := m.dashboardGreeting(); greeting != "" {
-		body = append(body, CenterHorizontally(BrandStyle.Render(truncate(greeting, width)), width))
-	}
-	for _, line := range wrapText(m.environmentSentence(), width, 0) {
-		body = append(body, CenterHorizontally(MeterStyle.Render(line), width))
-	}
-	body = append(body, "")
-
-	button := ButtonStyle.Render("▶ " + homeStartLabel)
-	body = append(body, CenterHorizontally(button, width))
-	body = append(body, CenterHorizontally(MutedStyle.Render(truncate(homeExploreHint, width)), width))
-
-	// The creature is the frame's own: it takes the blank rows under this column,
-	// which is the reference's placement. Drawing it here as well would double it.
-	return body
-}
-
-// homeMachineCards draws the four machine cards as the reference does: a small
-// bordered card per fact with the icon and the label on one row and the value on
-// the next. Where the cards cannot fit their own values the same facts are drawn
-// in one wrapped row, which loses no fact.
-func (m Model) homeMachineCards(width int) []string {
-	cards := m.dashboardCards()
-	if len(cards) == 0 {
-		return nil
-	}
-	each := (width - grammarGap*(len(cards)-1)) / len(cards)
-	need := 0
-	for _, card := range cards {
-		need = max(need, lipgloss.Width(card.label), lipgloss.Width(card.value))
-	}
-	need += 2*grammarCardPad + panelFrame
-	if each < need {
-		return m.dashboardCardFacts(width)
-	}
-
-	const rows = 4
-	out := make([]string, rows)
-	for _, machine := range cards {
-		box := machineCardOf(machine, each)
-		for r, line := range box {
-			if out[r] == "" {
-				out[r] = line
-				continue
-			}
-			out[r] += strings.Repeat(" ", grammarGap) + line
+// stackHomeBlocks draws a column: the shared top margin, then the blocks it was
+// given one homeBlockGap apart. A block is never cut through its own rows, and the
+// gutter is given back before a block is: the gap is the screen's taste, while a
+// block is a fact. When even the shortest gutters do not fit, the blocks that do
+// not fit whole are left out rather than sliced.
+func stackHomeBlocks(blocks [][]string, rows int) []string {
+	for gap := homeBlockGap; gap >= 0; gap-- {
+		if out, ok := stackHomeBlocksAt(blocks, gap, rows); ok {
+			return out
 		}
 	}
+	out, _ := stackHomeBlocksAt(blocks, 0, rows)
 	return out
 }
 
-// machineCardOf draws one machine card: the top border, the icon and label, the
-// value and the closing border.
-func machineCardOf(card dashboardCard, width int) []string {
-	edge := func(s string) string { return PanelBorderStyle.Render(s) }
-	inner := max(1, width-panelFrame)
-	content := max(1, inner-2*grammarCardPad)
-	row := func(s string) string {
-		return edge("│") + strings.Repeat(" ", grammarCardPad) +
-			padRight(truncate(s, content), content) + strings.Repeat(" ", grammarCardPad) + edge("│")
+// stackHomeBlocksAt is stackHomeBlocks at one gutter width, reporting whether
+// every block fitted.
+func stackHomeBlocksAt(blocks [][]string, gap, rows int) ([]string, bool) {
+	out := make([]string, homeTopMargin)
+	spent := homeTopMargin
+	placed := 0
+	for _, block := range blocks {
+		if len(block) == 0 {
+			continue
+		}
+		need := len(block)
+		if placed > 0 {
+			need += gap
+		}
+		if spent+need > rows {
+			return out, false
+		}
+		if placed > 0 {
+			out = append(out, make([]string, gap)...)
+			spent += gap
+		}
+		out = append(out, block...)
+		spent += len(block)
+		placed++
 	}
-	return []string{
-		edge("╭" + strings.Repeat("─", inner) + "╮"),
-		row(AccentKeyStyle.Render(card.icon) + " " + MutedStyle.Render(card.label)),
-		row(InkStyle.Render(card.value)),
-		edge("╰" + strings.Repeat("─", inner) + "╯"),
-	}
+	return out, true
 }
 
-// homeRightColumn is the reference's three cards, stacked: the machine, the next
-// steps and the newest backup. A card is omitted when the model holds no fact
-// for it -- a host that was never detected gets no machine card, a model with no
+// placeHomeBody fills the frame's body rows under the composition. The rows the
+// columns did not spend stay under them, where the creature's block is: the
+// composition is anchored to the frame's top rule, not centred, so a tall
+// terminal adds one band of space above the pet instead of two bands around the
+// content.
+func placeHomeBody(body []string, rows int) []string {
+	if len(body) >= rows {
+		return body
+	}
+	out := make([]string, rows)
+	copy(out, body)
+	return out
+}
+
+// homeLeftBlocks is the left column as blocks, in the reference's order: the
+// lockup, the tagline, the machine chips, the greeting with the environment
+// sentence, and the call to action with the hint that opens the menu. Every block
+// is drawn against the column's own left edge -- the lockup included -- so the
+// column has one left edge and the chips line up with the words above them, which
+// is what the centred text under a flush-left band of cards did not.
+func (m Model) homeLeftBlocks(width int) [][]string {
+	var blocks [][]string
+
+	var lockup []string
+	if m.Height >= 46 && width >= wordmarkWidth() {
+		lockup = append(lockup, renderEmblem(logo)...)
+		// The blank between the emblem and the wordmark is the lockup's own
+		// spacing, and it is the same one row as every gutter on the screen.
+		lockup = append(lockup, "")
+		lockup = append(lockup, renderWordmark(dotfilesText)...)
+	} else {
+		lockup = append(lockup, renderEmblem(compactLogo)...)
+		lockup = append(lockup, renderWordmark("dotfiles")...)
+	}
+	blocks = append(blocks, lockup)
+
+	blocks = append(blocks, []string{
+		MutedStyle.Render(truncate(homeTagline, width)),
+		SubtitleStyle.Render(truncate(homeTaglineWarm, width)),
+	})
+
+	// The machine chips are the dashboard's own four cards, drawn by the same
+	// function at the floor: one card shape on both shapes of the screen.
+	if chips := m.dashboardCardsRows(width); len(chips) > 0 {
+		blocks = append(blocks, chips)
+	}
+
+	var greeting []string
+	if word := m.dashboardGreeting(); word != "" {
+		greeting = append(greeting, BrandStyle.Render(truncate(word, width)))
+	}
+	for _, line := range wrapText(m.environmentSentence(), width, 0) {
+		greeting = append(greeting, MeterStyle.Render(line))
+	}
+	blocks = append(blocks, greeting)
+
+	blocks = append(blocks, []string{
+		ButtonStyle.Render("▶ " + homeStartLabel),
+		MutedStyle.Render(truncate(homeExploreHint, width)),
+	})
+
+	// The creature is the frame's own: it takes the rows under both columns, which
+	// is the reference's placement. Drawing it here as well would double it.
+	return blocks
+}
+
+// homeRightBlocks is the reference's three cards as blocks: the machine, the next
+// steps and the newest backup. A card is omitted when the model holds no fact for
+// it -- a host that was never detected gets no machine card, a model with no
 // backup gets no backup card -- rather than drawn with a guess.
-func (m Model) homeRightColumn(width, budget int) []string {
+func (m Model) homeRightBlocks(width int) [][]string {
 	var blocks [][]string
 	if facts := m.homeMachineFacts(width); len(facts) > 0 {
 		blocks = append(blocks, card("Your machine", "This machine, now · Did you know?", width, facts))
@@ -189,7 +222,7 @@ func (m Model) homeRightColumn(width, budget int) []string {
 	if backup, ok := newestBackup(m.AvailableBackups); ok {
 		blocks = append(blocks, card("Recent backup", "Your safety net", width, m.homeBackupLines(backup, cardContentWidth(width))))
 	}
-	return fitColumnBlocks(blocks, budget)
+	return blocks
 }
 
 // homeMachineFacts is the machine card's body: one fact per row, each from a

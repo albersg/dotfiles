@@ -253,7 +253,11 @@ func TestDashboardFitsTheFloorAndKeepsItsParts(t *testing.T) {
 	})
 
 	t.Run("every key stays reachable", func(t *testing.T) {
-		for _, want := range []string{"[s] start", "[q] quit", "[Tab] panel"} {
+		// Tab opens the menu at every size the screen is drawn at, so the floor names
+		// the menu for it exactly as the wide home's body and footer do. The panel
+		// walk does not take the key on this screen; advertising "[Tab] panel" here
+		// was the promise that stopped being true when the screen grew the menu key.
+		for _, want := range []string{"[s] start", "[q] quit", "[Tab] menu"} {
 			if !strings.Contains(view, want) {
 				t.Errorf("the floor's footer does not offer %q:\n%s", want, view)
 			}

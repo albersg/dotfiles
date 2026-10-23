@@ -1830,7 +1830,11 @@ func (m Model) renderWelcome() string {
 	for i, line := range body {
 		centered[i] = CenterHorizontally(line, bodyWidth)
 	}
-	return m.frame(m.headerName(), "", centered, []installerHint{hintStart, hintQuit})
+	// The floor's footer names the same press the wide home's does. Tab opens the
+	// menu at every size (the screen's own dispatch reads it), so the footer may not
+	// advertise the panel walk here: [Tab] menu is the one meaning the key has on
+	// this screen.
+	return m.frame(m.headerName(), "", centered, m.welcomeHints())
 }
 
 // mainMenuTrainerNotice is the one line the main menu shows for a trainer save

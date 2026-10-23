@@ -866,14 +866,28 @@ func placeRotator(placed, rotator []string) []string {
 // panelHints adds the [Tab] hint to a screen's own hints when the screen offers
 // more than one panel, and leaves them alone otherwise. A screen that offers one
 // panel gets no hint: Tab there does nothing, and a key that does nothing must
-// not be advertised. The panel column and the footer are packed from this same
-// list, so the hint and the row budget cannot disagree about how many rows the
-// footer spends.
+// not be advertised. A screen whose own footer already gives Tab a meaning keeps
+// that meaning alone: the welcome screen promises "[Tab] menu", and the panel walk
+// does not take the key there, so printing "[Tab] panel" beside it would be a
+// second, false promise for one press. The panel column and the footer are packed
+// from this same list, so the hint and the row budget cannot disagree about how
+// many rows the footer spends.
 func (m Model) panelHints(panels []panel, hints []installerHint) []installerHint {
-	if len(panels) < 2 {
+	if len(panels) < 2 || hintsNameTab(hints) {
 		return hints
 	}
 	return append(append([]installerHint{}, hints...), hintTab)
+}
+
+// hintsNameTab reports whether a screen's own footer already names Tab, which is
+// how the panel walk knows not to advertise a second meaning for the key.
+func hintsNameTab(hints []installerHint) bool {
+	for _, hint := range hints {
+		if hint.keys == hintTab.keys {
+			return true
+		}
+	}
+	return false
 }
 
 // panelBody assembles a right-column body: the chip that names it, the rule under

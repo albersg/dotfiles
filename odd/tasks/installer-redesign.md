@@ -2014,3 +2014,80 @@ Validation was the short loop: `gofmt -l` and `go vet ./internal/tui` clean, the
 focused tests (WSL, SSH, doctor, network, disk cleaner, section-wide, frame,
 utilities, goldens) and then the whole `internal/tui` package green (504 s). No
 preflight, no captures, no commit.
+
+L35. Two defects the user reported against the home screen, in the tree and
+uncommitted: Tab on the welcome screen did nothing, and the wide composition's
+margins and separation were unbalanced.
+
+**Tab.** The welcome screen's body says "or explore the menu with [Tab]" and its
+footer says "[Tab] menu", but the press did nothing at every size where the panel
+is not drawn. The key path, not the copy, was wrong: the frame's panel walk
+(`handleKeyPress`, `update.go`) runs BEFORE the per-screen dispatch and takes Tab
+whenever the screen offers more than one panel. The welcome screen offers three
+(the machine, live and tip panels), so the walk consumed the press and wrote
+`PanelIndex` -- which the wide home never draws, because its right column is the
+reference's three cards -- and the screen's own `case "s", "tab"` never ran. L19
+shipped "[Tab] opens the menu"; the panel walk added later re-stole the key.
+
+The promise is the truth, as the reference's footer says it: the panel walk now
+skips the welcome screen (`key == "tab" && m.Screen != ScreenWelcome`), so the
+screen's own dispatch reads the press and opens the main menu at every size. The
+floor had been advertising the other meaning -- `panelHints` appended "[Tab] panel"
+to the welcome screen's hints -- so it now keeps the screen's own "[Tab] menu" and
+appends nothing: a footer may not advertise two meanings for one press
+(`hintsNameTab`). `welcomeHints` is the screen's one footer at both shapes. Every
+other key on the screen is untouched, and every other screen keeps the panel walk
+(the trainer still reads Tab as "hint" because it offers no panel).
+
+**The composition.** `home_view.go` drew the wide home as two columns of blocks
+that were individually centred (`CenterHorizontally` per line) beside full-width
+cards, both columns floating in the frame's middle: at 200x55 the left column ran
+28 rows against the right column's 18, with eight blank rows above the lockup and
+another band under the cards, and the gap between blocks was whatever that block's
+blank line happened to be. The composition is now one set of measures:
+
+- `homeTopMargin` (1 row) is the blank rows BOTH columns open with, so the two
+  columns start on one row and neither block sits against the header's rule.
+- `homeBlockGap` (1 row) is the gutter between two blocks of either column. The
+  columns' own gutter is `layoutGutter`, which `composeColumns` already spends on
+  every two-column screen; the composition adds no third measure.
+- Every block of the left column is drawn against the column's own left edge, the
+  lockup included (`homeLeftBlocks`). The tagline, the chips, the greeting, the
+  environment sentence and the call to action now share one left edge; the screen
+  used to centre each line of text over a flush-left band of cards.
+- The chips are the dashboard's own four cards (`dashboardCardsRows`), so the wide
+  home and the 80x24 floor draw ONE card shape and the wide screen's chips lost
+  the fourth row the private `homeMachineCards`/`machineCardOf` pair spent.
+- The composition is anchored, not centred (`placeHomeBody`): the rows the columns
+  do not spend stay under them, above the creature's `companionBlockRows` reserve,
+  which is taken off the budget before either column is measured. A block that does
+  not fit is left out whole and the gutter is given back first (`stackHomeBlocks`),
+  so a tight frame loses spacing before it loses a fact.
+
+Both target sizes read deliberately from the same measures: at 200x55 and 160x50
+every inter-block run is one row, both columns start one row under the rule, and
+the chips sit in the tagline's column. The columns are still not the same height --
+the left one holds the lockup, the tagline, the chips, the greeting and the call to
+action, while the right one holds three cards and only the model's own facts fill
+it (a machine card with no detected host, or a run with no backup, is a shorter
+column). Stretching the right column's gutter to force equal bottoms would have
+turned two cards into islands, which is not a rhythm; the leftover rows are the
+creature's band instead.
+
+Guards (`home_view_test.go`, 6 tests): `TestWelcomeTabOpensTheMenuAndNeverWalksPanels`
+(200x55, 160x50, 160x40 and the 80x24 floor: the screen offers [Tab] menu, the press
+opens the main menu with cursor 0, and `PanelIndex` is still 0),
+`TestWelcomeStartAndQuitStillDoWhatTheyDid` (the fix moved no other key),
+`TestHomeWideSharesOneTopMarginForBothColumns`, `TestHomeWideSeparatesEveryBlockByOneGutter`
+(every inter-block run is `homeBlockGap` in both columns, and the columns are
+`layoutGutter` apart), `TestHomeWideChipsSitOnTheTextsLeftEdge`, and
+`TestHomeWideFitsItsFrameAndKeepsThePet` (exactly the terminal's rows, no row past
+the width, no cut marker, the creature's block still drawn). Goldens: new
+`TestHomeWideGolden` (200x55) and `TestHomeStandardGolden` (160x50);
+`TestDashboardWideGolden` and `TestWelcomeLivePanelGolden` (160x40) regenerated for
+the composition, and `TestWelcomeScreenGolden` (80x24) for the floor's footer, whose
+only change is `[Tab] panel` -> `[Tab] menu`.
+
+Validation was the short loop: `gofmt -l` and `go vet ./internal/tui` clean, the
+home/welcome/dashboard/panel/frame/layout golden set, and the whole `internal/tui`
+package green. No preflight, no captures, no commit.

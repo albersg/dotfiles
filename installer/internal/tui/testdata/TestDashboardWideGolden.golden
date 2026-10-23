@@ -2,11 +2,6 @@
    dotfiles                                                                                                                                          dev build  
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  
                                                                                                                                                                 
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
-                                                                                                                                                                
      ░▓▓▓▓▓▓▓▓▓▓▓░                                                        ╭─ Your machine ──────────────────────────────── This machine, now · Did you know? ╮  
    ░▓█████████████▓░                                                      │──────────────────────────────────────────────────────────────────────────────────│  
    ▓▓░▓▓▓▓▓▓▓▓▓▓▓░▓▓                                                      │  OS                 Linux                                                       │  
@@ -17,19 +12,24 @@
           ▓█▓                                                             ╰──────────────────────────────────────────────────────────────────────────────────╯  
            ▒                                                                                                                                                    
   dotfiles                                                                ╭─ Next steps ─────────────────────────────────── What will happen? · Your trainer ╮  
-                  Your personal development environment.                  │──────────────────────────────────────────────────────────────────────────────────│  
-                         Fast. Consistent. Yours.                         │  1  Preparation                                                                  │  
-                                                                          │    Clone Repository and Install Homebrew                                         │  
-  ╭──────────────╮ ╭──────────────╮ ╭──────────────╮ ╭──────────────╮     │  2  The extras                                                                   │  
-  │  OS         │ │  Shell      │ │  Arch       │ │  Packages   │     │    Install Toolset, Install Pi Agent Skills, Install OfficeCLI                   │  
-  │ Linux        │ │ zsh          │ │ x86_64       │ │ apt-get      │     │  3  Finishing up                                                                 │  
-  ╰──────────────╯ ╰──────────────╯ ╰──────────────╯ ╰──────────────╯     │    Restore the Applied Theme, Set Default Shell, Cleanup                         │  
+                                                                          │──────────────────────────────────────────────────────────────────────────────────│  
+  Your personal development environment.                                  │  1  Preparation                                                                  │  
+  Fast. Consistent. Yours.                                                │    Clone Repository and Install Homebrew                                         │  
+                                                                          │  2  The extras                                                                   │  
+  ╭─ OS ─────────╮ ╭─ Shell ──────╮ ╭─ Arch ───────╮ ╭─ Packages ──╮  │    Install Toolset, Install Pi Agent Skills, Install OfficeCLI                   │  
+  │ Linux         │ │ zsh           │ │ x86_64        │ │ apt-get      │  │  3  Finishing up                                                                 │  
+  ╰───────────────╯ ╰───────────────╯ ╰───────────────╯ ╰──────────────╯  │    Restore the Applied Theme, Set Default Shell, Cleanup                         │  
                                                                           ╰──────────────────────────────────────────────────────────────────────────────────╯  
-                         Good morning, testuser!                                                                                                                
-                       Running on Linux (dev build)                                                                                                             
+  Good morning, testuser!                                                                                                                                       
+  Running on Linux (dev build)                                                                                                                                  
                                                                                                                                                                 
-                    ▶ Press [s] to start installation                                                                                                           
-                      or explore the menu with [Tab]                                                                                                            
+   ▶ Press [s] to start installation                                                                                                                            
+  or explore the menu with [Tab]                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
                                                                                                                                                                 
    /\______/\                                                                                                                                                   
   (          )                                                                                                                                                  

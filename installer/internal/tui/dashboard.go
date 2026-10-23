@@ -365,6 +365,5 @@ func cleanUserName(name string) string {
 // for the whole block -- and the arithmetic stays in one place instead of being
 // restated in the renderer.
 func (m Model) welcomeBodyRows() int {
-	hints := []installerHint{hintStart, hintQuit}
-	return installerBodyRows(m.Height, m.footerReserveRows(contentWidth(m), m.panelHints(m.panelsFor(), hints)))
+	return installerBodyRows(m.Height, m.footerReserveRows(contentWidth(m), m.panelHints(m.panelsFor(), m.welcomeHints())))
 }
