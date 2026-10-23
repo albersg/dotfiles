@@ -1176,6 +1176,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// what carries the outcome, and this message only ends the read loop.
 		return m, nil
 
+	case updateCenterCredentialMsg:
+		// The terminal ask's answer, for a run that had to be asked: the confirmed
+		// sequence starts either way, and a refusal is reported by the manager's own
+		// `sudo -n` rather than by a second question here.
+		return m.updateCenterHandleCredential(msg)
+
 	case wslResourceLoadedMsg:
 		// The first read fills the state once: a later answer arriving after the
 		// screen has been written would roll the draft back to what the file held.
@@ -1549,6 +1555,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ExistingConfigs = msg.configs
 		}
 		return m, nil
+
+	case sudoCredentialCheckMsg:
+		// The update centre's apply asked the run's probe question before its first
+		// root command: a credential sudo already holds starts the sequence, and a
+		// machine that would have to ask gets the terminal handover.
+		return m.updateCenterHandleCredentialCheck(msg)
 
 	case sudoNeedsPasswordMsg:
 		// sudo has no credential it can use without a password. The installer asks
@@ -4640,7 +4652,7 @@ func (m *Model) runNextStep() tea.Cmd {
 // administrator credential first. It is true once per run, before the first
 // step that needs root, and never under --dry-run, which runs nothing.
 func (m *Model) shouldPrimeSudo(stepID string) bool {
-	return !dryRun() && !m.SudoPrimed && !m.SudoPrimeAttempted && stepNeedsSudo(stepID, m)
+	return !dryRun() && m.sudoRequestPending() && stepNeedsSudo(stepID, m)
 }
 
 // sudoPrimeCmd asks for the administrator credential once and records that the

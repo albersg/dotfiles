@@ -68,13 +68,29 @@ var sudoTerminalPrimer = defaultSudoTerminalPrimer
 // ask the same question.
 const sudoTerminalCommand = "sudo"
 
+// sudoTerminalExec is the program's form of the terminal ask: `sudo -v` handed the
+// terminal through the program's own release of the screen, with the caller's
+// message as the answer.
+//
+// It exists because two callers own the same screen and ask the same question. The
+// installing screen resumes its step loop on sudoPrimedMsg, and the update
+// centre's apply resumes its own command sequence when the credential is its to
+// read, so the command, its prompt and the credential it caches are one thing
+// spelled once rather than two prompts that could drift. It is a variable so a
+// test can answer it without handing a password prompt the terminal.
+var sudoTerminalExec = sudoTerminalExecCmd
+
+func sudoTerminalExecCmd(respond func(error) tea.Msg) tea.Cmd {
+	c := exec.Command(sudoTerminalCommand, "-v")
+	return tea.ExecProcess(c, respond)
+}
+
 // defaultSudoTerminalPrimer runs `sudo -v` with the terminal attached. It is now
 // the one moment a run gives the terminal to a child process, and it happens only
 // when the user asks for it: sudo writes the cached credential it later reads
 // non-interactively, and the interface comes straight back to the screen.
 func defaultSudoTerminalPrimer() tea.Cmd {
-	c := exec.Command(sudoTerminalCommand, "-v")
-	return tea.ExecProcess(c, func(err error) tea.Msg {
+	return sudoTerminalExec(func(err error) tea.Msg {
 		return sudoPrimedMsg{err: err}
 	})
 }
@@ -98,6 +114,26 @@ func defaultSudoTerminalAsk() error {
 
 // sudoPrimedMsg reports the outcome of the single credential request.
 type sudoPrimedMsg struct{ err error }
+
+// sudoCredentialCheckMsg is the answer to the run's probe question: nil when sudo
+// already holds a credential it can use without asking.
+type sudoCredentialCheckMsg struct{ err error }
+
+// sudoCredentialCheckCmd asks the probe question off the update loop, so a caller
+// that owns the screen can decide whether an ask is needed at all without
+// blocking a frame on `sudo -n -v`.
+func sudoCredentialCheckCmd() tea.Cmd {
+	return func() tea.Msg { return sudoCredentialCheckMsg{err: sudoCredentialCached()} }
+}
+
+// sudoRequestPending reports whether this run still has to make its one credential
+// request. The step loop and the update centre's apply both read it here, so "at
+// most once per run" is one rule rather than two: a run that already answered the
+// question -- cached, typed or refused -- is not asked again, and a screen reached
+// without an installation run asks on its own terms.
+func (m Model) sudoRequestPending() bool {
+	return !m.SudoPrimed && !m.SudoPrimeAttempted
+}
 
 // sudoKeepAliveMsg asks for the cached credential to be refreshed.
 type sudoKeepAliveMsg struct{}

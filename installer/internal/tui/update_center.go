@@ -193,6 +193,10 @@ type updateCenterLineMsg string
 
 type updateCenterLinesClosedMsg struct{}
 
+// updateCenterCredentialMsg is the terminal ask's answer for a run that had to be
+// asked for the administrator credential: nil when sudo cached it.
+type updateCenterCredentialMsg struct{ err error }
+
 // ---------------------------------------------------------------------------
 // The commands
 // ---------------------------------------------------------------------------
@@ -302,10 +306,45 @@ func (m *Model) startUpdateCenterApply() tea.Cmd {
 	state.Lines = make(chan string, updateCenterLineBuffer)
 	state.ctx, state.cancel = context.WithCancel(context.Background())
 
+	// The administrator credential is asked for before the first command that needs
+	// it. A manager's system-wide upgrade runs under `sudo -n` -- a flag chosen
+	// because an interface cannot answer a prompt it never sees -- so on a machine
+	// that would ask for a password the command fails with "a password is
+	// required" unless the credential is cached first. This screen is reachable
+	// without an installation run (Utilities is a section of its own), so it makes
+	// its own request rather than relying on the step loop's; the run's own flags
+	// keep it to one. The probe comes first so a machine whose sudo already holds
+	// what it needs is never prompted, and a run that already made its request --
+	// cached, typed or refused -- is left alone.
+	if m.updateCenterApplyNeedsRoot() && m.sudoRequestPending() {
+		m.SudoPrimeAttempted = true
+		return sudoCredentialCheckCmd()
+	}
+
+	return m.updateCenterBeginApply()
+}
+
+// updateCenterBeginApply starts the confirmed sequence: the first plan's command
+// and the reader for its output arrive together, and each later plan is started by
+// the one before it.
+func (m *Model) updateCenterBeginApply() tea.Cmd {
 	return tea.Batch(
 		m.updateCenterApplyPlanCmd(0),
-		updateCenterWaitForLine(state.Lines),
+		updateCenterWaitForLine(m.UpdateCenter.Lines),
 	)
+}
+
+// updateCenterApplyNeedsRoot reports whether any confirmed plan runs a command
+// that has to be the administrator's. It is the plan's own answer -- the same one
+// the confirmation names -- so the screen does not hold a second opinion about who
+// has to run a command.
+func (m Model) updateCenterApplyNeedsRoot() bool {
+	for _, plan := range m.UpdateCenter.Plans {
+		if plan.Elevation() {
+			return true
+		}
+	}
+	return false
 }
 
 // updateCenterApplyPlanCmd runs one plan of the confirmed sequence.
@@ -1432,6 +1471,31 @@ func (m Model) updateCenterHandleRead(msg updateCenterReadMsg) (tea.Model, tea.C
 	}
 	state.Notice = m.updateCenterScanNotice()
 	return m, nil
+}
+
+// updateCenterHandleCredentialCheck reads the probe's answer. A credential sudo
+// already holds starts the sequence without putting anything in front of the user;
+// a machine that would have to ask gets the terminal ask, in the program's form, so
+// the screen is released for sudo's prompt and restored when it returns.
+func (m Model) updateCenterHandleCredentialCheck(msg sudoCredentialCheckMsg) (tea.Model, tea.Cmd) {
+	if msg.err == nil {
+		m.SudoPrimed = true
+		return m, m.updateCenterBeginApply()
+	}
+	return m, sudoTerminalExec(func(err error) tea.Msg {
+		return updateCenterCredentialMsg{err: err}
+	})
+}
+
+// updateCenterHandleCredential is the terminal ask's answer, and it starts the
+// sequence either way. A refusal is not a reason to skip the run: the command that
+// needed the credential reports the refusal itself, through `sudo -n`, in the
+// manager's own words -- the same report a run that was never primed gave, and the
+// one the user can act on. Nothing is stored and no password passes through the
+// program: it goes from the person to sudo, on the terminal sudo owns.
+func (m Model) updateCenterHandleCredential(msg updateCenterCredentialMsg) (tea.Model, tea.Cmd) {
+	m.SudoPrimed = msg.err == nil
+	return m, m.updateCenterBeginApply()
 }
 
 // updateCenterHandleApplyDone stores one plan's result and either runs the next

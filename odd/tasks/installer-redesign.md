@@ -2274,3 +2274,109 @@ through `SendLog`, which is verbose-only there. Validation was the short loop:
 `make check` (gofmt, `go vet ./...`, and the changed packages
 `./internal/system ./internal/tui`, every golden included) passed. No full
 suite, no preflight, no commit.
+
+L38. The update centre's apply asked for no sudo credential, in the tree
+(uncommitted). The user reported that applying an update fails with "sudo
+password is required".
+
+**The failing path, measured.** `startUpdateCenterApply` opened the output channel
+and returned the first plan's command; `Engine.Apply` is built from
+`Plan.Command`, whose system-wide plans are spelled `Elevate: true` and therefore
+`sudo -n -- <manager> upgrade …` through `Executor`-free `runCommand`, which hands
+the child pipes for both streams. `-n` is the flag that refuses instead of asking,
+so a machine whose sudo would want a password answered "a password is required"
+and the plan was classified `StatusPermission` -- the same failure the dependency
+step had in L37, on the path that reaches a root command without an installation
+run behind it. The update centre is openable from Utilities on its own, so it could
+not rely on the step loop's request: nothing had ever asked.
+
+**The wiring.** The apply makes the run's own request, before its first root
+command, and the screen still owns no prompt of its own:
+
+- `updateCenterApplyNeedsRoot` reads the plans' own answer (`Plan.Elevation`, the
+  same one the confirmation names), so the request follows the command and not the
+  screen's name: a Homebrew-only sequence asks for nothing.
+- `sudoRequestPending` is the run's "at most once" rule, shared with
+  `shouldPrimeSudo` so the step loop and this screen cannot disagree: a run that
+  already answered the question -- cached, typed or refused -- is never asked
+  again.
+- `sudoCredentialCheckCmd` asks `sudo -n -v` off the update loop (through
+  `sudoCredentialCached`, unchanged), so a machine whose sudo already holds a
+  credential -- a NOPASSWD rule, a container running as root -- is never prompted.
+- Only where it does not, `sudoTerminalExec` hands the terminal to `sudo -v` and
+  waits: the program's form of the ask, spelled once and now shared with
+  `defaultSudoTerminalPrimer`, so the installing screen resumes its step loop on
+  `sudoPrimedMsg` and the update centre resumes its own command sequence on
+  `updateCenterCredentialMsg`. The scripted route keeps `sudoTerminalAsk` and
+  `system.RunTerminal`, where there is no screen to release.
+- `updateCenterBeginApply` starts plan 0 and its output reader; a refused ask starts
+  the sequence too, because the command that needed the credential reports the
+  refusal itself through `sudo -n`, in the manager's own words. Nothing is stored,
+  no password travels through the program, and no `-S` is involved.
+
+The screen's progress surface, plan, keys and data are unchanged: `Applying`,
+`Lines`, `PlanIndex` and the stop key are set exactly as before, and the only new
+state is the run's own `SudoPrimeAttempted`/`SudoPrimed`. The dry run is untouched
+(the update centre never consulted it, before or now).
+
+Guards (`update_center_credential_test.go`, 8 tests, every seam a variable):
+`TestTheUpdateApplyAsksForTheCredentialBeforeItsFirstRootCommand` (the reported
+failure: one probe, one ask, both before the first `run:apt`),
+`TestTheCachedCredentialIsNeverAskedForBeforeTheUpdateRuns`,
+`TestTheUpdateApplyAsksForTheCredentialOnlyOnce`,
+`TestAUserScopedUpdatePlanAsksForNothing`,
+`TestAnUpdateApplyAfterTheRunsRequestAsksNothing` (both the cached and the refused
+case), `TestARefusedCredentialDoesNotSkipTheUpdateRun`,
+`TestTheUpdateApplyAndTheInstallingScreenAskThroughTheSameHandover` (one handover,
+two answers) and `TestTheUpdateApplyAsksWithTheRunsOwnFlags` (a fake `sudo` on
+PATH: the probe is given `-n -v` and no `-S`, the ask exactly `-v`).
+
+No golden moved: the ask speaks before the run starts and writes nothing to the
+screen. Validation was the short loop: `make check` (gofmt, `go vet ./...`, and
+`./internal/tui`, every golden included) passed. No full suite, no preflight, no
+commit.
+
+L39. The wide home's composition was anchored to the header's rule and left the
+frame's surplus as one band of void under the cards, in the tree (uncommitted).
+The user reported it against the welcome screen.
+
+**What was there.** L35 fixed the horizontal grammar and, in the same pass, anchored
+the vertical one: `placeHomeBody` filled the body rows under the composed columns
+and left the rest under them, on the reasoning that centring had produced two bands
+of space instead of one. One band is what the user saw: at 200x55 the block spent
+34 of the 45 rows above the creature and the other 11 sat as a single void between
+the call to action and the pet.
+
+**The fix.** `renderHomeWide` now reserves the creature's block first
+(`companionBlockRows`, unchanged, so the reserve still ignores the animation gate)
+and centres the block in the rows that are left between the header's rule and that
+block; `placeHomeBody` places it with the same split every framed screen uses (the
+odd row, if any, below). The tail under the block is the creature's band, so the
+pet stays the frame's last rows. The rhythm is untouched: `homeTopMargin` is still
+the block's own first row (both columns still start together and the block never
+touches the rule), `homeBlockGap` is still the one gutter between blocks,
+`layoutGutter` is still the columns' gutter, and every block is still drawn against
+its column's left edge, chips included. Nothing about the block's height depends on
+a clock, a tick or the cursor, so its row is a function of the terminal and of the
+data the model already holds, and the 80x24 floor keeps the compact dashboard
+unchanged (its goldens are byte-identical).
+
+Guards (`home_view_test.go`): `TestHomeWideCentresOneBlockBetweenTheHeaderAndThePet`
+replaces `TestHomeWideSharesOneTopMarginForBothColumns` -- both columns start on one
+row, at least `homeTopMargin` rows under the rule, and the rows above the block and
+the rows between it and the creature's block differ by at most one, at 200x55,
+160x50 and 160x40. New `TestHomeWideLetsNothingMoveTheBlock` renders the same model
+before and after an animation tick and reads both columns' first row back: the
+block stands still while nothing on screen changes. The rest of L35's guards are
+unchanged and still pass (one gutter between blocks, `layoutGutter` between the
+columns, the chips on the tagline's edge, the frame's rows and the creature's
+block).
+
+Goldens regenerated, blank rows only: `TestHomeWideGolden` (200x55, the block five
+rows lower), `TestHomeStandardGolden` and `TestWelcomeLivePanelGolden` and
+`TestDashboardWideGolden` (160x40/160x50, three rows lower). No drawn row, value or
+word changed in any of them, and `TestWelcomeScreenGolden` (80x24) is untouched.
+
+Validation was the short loop: `make check` (gofmt, `go vet ./...`, and
+`./internal/tui`, every golden included) passed. No full suite, no preflight, no
+captures, no commit.

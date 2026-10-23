@@ -69,31 +69,37 @@ func (m Model) welcomeHints() []installerHint {
 // the two columns before the frame sees it, so the frame still owns the header,
 // the status rule, the footer and the creature's rows.
 //
-// The composition is read from its top: both columns open on the same blank rows
-// (homeTopMargin), one gutter separates their blocks (homeBlockGap), and the
-// columns' content is anchored under the frame's rule instead of being centred in
-// the frame. Centring was the void: a composition half the height of the frame
-// spent the difference as two bands of space, one above the lockup and one under
-// the cards, which reads as content that could not decide where to sit. The tail
-// the composition does not spend belongs to the creature's reserved block, at the
-// bottom, where the reference draws the pet.
+// The composition keeps its internal rhythm from its top row: both columns open
+// on the same blank rows (homeTopMargin), one gutter separates their blocks
+// (homeBlockGap), and each block is drawn against its column's left edge. The
+// block those measures make is then CENTRED between the frame's rule and the
+// creature's block, which is where the whole composition sits on the reference
+// screens: anchored to the rule it spent the difference as one band of void under
+// the cards, and centred without the pet's reserve it would have centred through
+// the creature instead. The reserve is taken off the budget before either column
+// is measured, so the pet keeps the rows the terminal gave it on every frame.
 func (m Model) renderHomeWide(l layout) string {
 	budget := installerBodyRows(m.Height, m.footerReserveRows(l.Inner, m.welcomeHints()))
 
-	// The creature's block is the frame's, so it is taken off the rows the columns
-	// may use before either column is measured: the pet keeps the rows the terminal
-	// gave it whether or not a column wanted them.
-	rows := budget - m.companionBlockRows(l.Inner)
+	// The creature's block is the frame's, so it is taken off the rows the
+	// composition is centred in: the pet keeps the rows the terminal gave it
+	// whether or not a column wanted them, and the block is centred in what is left
+	// above it. A frame too tight to hold both keeps the whole budget for the
+	// columns, which is the one case where the pet yields instead of the facts.
+	reserve := m.companionBlockRows(l.Inner)
+	rows := budget - reserve
 	if rows < 1 {
-		rows = budget
+		rows, reserve = budget, 0
 	}
 
 	left := stackHomeBlocks(m.homeLeftBlocks(l.Left), rows)
 	right := stackHomeBlocks(m.homeRightBlocks(l.Right), rows)
 
 	// The composed rows are the screen's rows, so the frame's own placement leaves
-	// them where they are and the creature takes the tail the columns gave back.
-	body := placeHomeBody(composeColumns(left, right, l), budget)
+	// them where they are: the block is centred in the rows above the creature, and
+	// the reserve is the tail under it that the creature is drawn in.
+	body := placeHomeBody(composeColumns(left, right, l), rows)
+	body = append(body, make([]string, reserve)...)
 	return m.frameWithPanels(m.headerName(), "", body, m.welcomeHints(), nil)
 }
 
@@ -140,17 +146,22 @@ func stackHomeBlocksAt(blocks [][]string, gap, rows int) ([]string, bool) {
 	return out, true
 }
 
-// placeHomeBody fills the frame's body rows under the composition. The rows the
-// columns did not spend stay under them, where the creature's block is: the
-// composition is anchored to the frame's top rule, not centred, so a tall
-// terminal adds one band of space above the pet instead of two bands around the
-// content.
+// placeHomeBody centres the composition in the rows it was given. The surplus the
+// columns did not spend is split above and below the block in equal parts, with
+// the odd row, if any, below -- the placement every framed screen uses, so the
+// home screen's block reads as one composition between the header and the
+// creature instead of content glued to the rule with one band of void under it.
+//
+// The block keeps its own first row (homeTopMargin), so both columns still start
+// together and the block never sits against the rule; the caller reserves the
+// creature's rows before calling this, so the space under the block is the
+// creature's band rather than half of the centring.
 func placeHomeBody(body []string, rows int) []string {
 	if len(body) >= rows {
 		return body
 	}
 	out := make([]string, rows)
-	copy(out, body)
+	copy(out[(rows-len(body))/2:], body)
 	return out
 }
 

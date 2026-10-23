@@ -158,12 +158,14 @@ func TestWelcomeStartAndQuitStillDoWhatTheyDid(t *testing.T) {
 	}
 }
 
-// TestHomeWideSharesOneTopMarginForBothColumns pins the first measure: the two
-// columns start on the same row, and the rows above them are homeTopMargin. The
-// composition used to be centred, which put the same number of rows above the
-// lockup as under the cards; a shared top margin is what makes the two columns
-// one composition.
-func TestHomeWideSharesOneTopMarginForBothColumns(t *testing.T) {
+// TestHomeWideCentresOneBlockBetweenTheHeaderAndThePet pins the first thing the
+// screen's vertical placement promises now: the two columns are ONE block, both
+// opening on the same row (homeTopMargin) and neither against the rule, and that
+// block is centred in the rows between the header and the creature's reserved
+// block. The composition used to be anchored to the rule with every row it did not
+// need spent under the cards, which reads as a void under the screen rather than a
+// composition.
+func TestHomeWideCentresOneBlockBetweenTheHeaderAndThePet(t *testing.T) {
 	for _, size := range []struct{ width, height int }{{200, 55}, {160, 50}, {160, 40}} {
 		t.Run(sizeName(size.width, size.height), func(t *testing.T) {
 			m := homeModel(t, size.width, size.height)
@@ -172,14 +174,65 @@ func TestHomeWideSharesOneTopMarginForBothColumns(t *testing.T) {
 			}
 			lines := homeLines(m)
 			left, right := homeColumnSpans(m)
+			rows := homeCompositionRows(m)
+			// Only the rows above the creature's reserved block are the
+			// composition's: the pet is drawn in the tail the block did not take.
+			block := lines[:min(homeBodyTop()+rows, len(lines))]
 
-			leftTop := left.drawn(lines)[0]
-			rightTop := right.drawn(lines)[0]
-			if leftTop != rightTop {
-				t.Errorf("the columns start %d and %d rows under the frame's rule, want one shared top row", leftTop, rightTop)
+			leftRows, rightRows := left.drawn(block), right.drawn(block)
+			if len(leftRows) == 0 || len(rightRows) == 0 {
+				t.Fatalf("a column draws nothing at %s, so this guard measures nothing:\n%s", sizeName(size.width, size.height), homeView(m))
 			}
-			if got := leftTop; got != homeTopMargin {
-				t.Errorf("the shared top margin is %d rows, want %d", got, homeTopMargin)
+			if leftRows[0] != rightRows[0] {
+				t.Errorf("the columns start %d and %d rows into the body, want one shared top row", leftRows[0], rightRows[0])
+			}
+
+			top := min(leftRows[0], rightRows[0])
+			bottom := max(leftRows[len(leftRows)-1], rightRows[len(rightRows)-1])
+			above := top
+			below := rows - 1 - bottom
+			if above < homeTopMargin {
+				t.Errorf("the composition starts %d rows under the rule, want at least its own top margin of %d", above, homeTopMargin)
+			}
+			if diff := above - below; diff > 1 || diff < -1 {
+				t.Errorf("the block sits %d rows under the rule and %d rows above its tail, want it centred (a difference of at most one row):\n%s",
+					above, below, homeView(m))
+			}
+		})
+	}
+}
+
+// TestHomeWideLetsNothingMoveTheBlock pins the side of centring that a snapshot
+// cannot: the block's row is a function of the terminal and of the screen's own
+// data, never of a clock, a tick or the cursor. Centring is only safe while the
+// block keeps its height, so the same model rendered again -- and the same model
+// with its animation stepped -- must put every block on the same row.
+func TestHomeWideLetsNothingMoveTheBlock(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{200, 55}, {160, 50}, {160, 40}} {
+		t.Run(sizeName(size.width, size.height), func(t *testing.T) {
+			m := homeModel(t, size.width, size.height)
+			before := homeLines(m)
+
+			next, _ := m.Update(animTickMsg{})
+			stepped, ok := next.(Model)
+			if !ok {
+				t.Fatalf("Update returned %T, want Model", next)
+			}
+			after := homeLines(stepped)
+
+			if len(before) != len(after) {
+				t.Fatalf("the frame is %d rows and %d rows after a tick, want one height", len(before), len(after))
+			}
+			left, right := homeColumnSpans(m)
+			for name, span := range map[string]homeColumnSpan{"left": left, "right": right} {
+				first, then := span.drawn(before), span.drawn(after)
+				if len(first) == 0 || len(then) == 0 {
+					t.Fatalf("the %s column draws nothing, so this guard measures nothing", name)
+				}
+				if first[0] != then[0] {
+					t.Errorf("the %s column's block starts on row %d and on row %d after one tick, want it standing still",
+						name, first[0], then[0])
+				}
 			}
 		})
 	}
