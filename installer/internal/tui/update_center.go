@@ -92,11 +92,6 @@ const (
 	// different screen's command.
 	updateCenterStopRow = "[i] Stop the update that is running"
 
-	// updateCenterLogRows is how many lines of a running command's output the
-	// screen shows. The end of the log is where the progress is, and the whole of
-	// it is kept in the model for the result.
-	updateCenterLogRows = 6
-
 	// updateCenterLogKept is how many lines of output the model keeps. A package
 	// manager can print megabytes; what a reader needs is the end of it, and the
 	// engine's own result keeps its bounded copy beside this one.
@@ -885,14 +880,22 @@ func (m Model) updateCenterDescription() []string {
 
 	switch {
 	case state.Applying:
-		paragraphs = append(paragraphs, m.updateCenterRunningParagraphs()...)
-		return append([]string{"Reads what this machine's managers say is out of date and moves only what you select; nothing changes until a selection is confirmed."}, paragraphs...)
+		// The live surface leads and the introduction is gone: at the floor the band
+		// holds four rows, and the sentence about what the screen is for is not one of
+		// the four facts a run in flight has to say.
+		return m.updateCenterRunParagraphs()
 	case state.Confirming:
 		paragraphs = append(paragraphs, m.updateCenterPlanParagraphs()...)
 		return append([]string{"Reads what this machine's managers say is out of date and moves only what you select; nothing changes until a selection is confirmed."}, paragraphs...)
 	}
 
-	// The entry nearest the cursor comes FIRST: it is the one thing the reader is
+	// A finished run's report comes FIRST while it stands, because a failure is the
+	// last run's unfinished business: the entries that did not move and the manager's
+	// own reason for each are what the reader has to act on, and the notice band
+	// carries only the one-line score.
+	paragraphs = append(paragraphs, m.updateCenterRunReportParagraphs()...)
+
+	// The entry nearest the cursor comes next: it is the one thing the reader is
 	// deciding about, and at the floor the detail band is four rows -- a generic
 	// introduction would spend them before a single fact arrived.
 	if item, ok := m.updateCenterDetailItem(); ok {
@@ -1020,37 +1023,6 @@ func (m Model) updateCenterPlanParagraphs() []string {
 		paragraphs = append(paragraphs, fmt.Sprintf("Left alone: %s — %s.", leftOut.Item.Name, leftOut.Reason))
 	}
 	return paragraphs
-}
-
-// updateCenterRunningParagraphs is what the running state shows: which command of
-// the sequence is running, how to stop it, and the end of what it has printed.
-func (m Model) updateCenterRunningParagraphs() []string {
-	state := m.UpdateCenter
-	paragraphs := []string{"An update is running. Esc does not leave this screen while it does: stop it with the row below, or wait for it to finish."}
-	if state.PlanIndex >= 0 && state.PlanIndex < len(state.Plans) {
-		paragraphs = append(paragraphs, fmt.Sprintf(
-			"Running %d of %d: %s", state.PlanIndex+1, len(state.Plans), state.Plans[state.PlanIndex].Display()))
-	}
-	if lines := updates.Tail(strings.Join(state.Log, "\n"), updateCenterLogRows); len(lines) > 0 {
-		paragraphs = append(paragraphs, lines...)
-	} else {
-		paragraphs = append(paragraphs, "Waiting for the manager's first line…")
-	}
-	if len(state.Applied) > 0 {
-		paragraphs = append(paragraphs, m.updateCenterAppliedSummary()...)
-	}
-	return paragraphs
-}
-
-// updateCenterAppliedSummary is the running screen's running score, so the user
-// can see what the finished commands did before the last one ends.
-func (m Model) updateCenterAppliedSummary() []string {
-	var lines []string
-	for _, applied := range m.UpdateCenter.Applied {
-		lines = append(lines, fmt.Sprintf("%s: %d confirmed, %d not moved.",
-			updateCenterManagerLabel(m, applied.Plan.Manager), applied.Confirmed(), applied.Failed()))
-	}
-	return lines
 }
 
 // updateCenterManagerLabel names a manager the way its own channel does, falling

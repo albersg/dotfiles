@@ -87,6 +87,7 @@ The user's words, verbatim:
 | T8 | S7 | The installing checklist, the log panel and the progress bar | (in the tree, uncommitted — the mockup's stack, the checklist beside the log card, the bar under both and the `[q] Cancel` footer) |
 | T9 | S10 | The remaining pages | (in the tree, uncommitted — the pickers' card, the framed dead ends, the completion fact rows, the backup cards and the learn pages, the keymap tables and the LazyVim guide on the reference card; the doctor and the update center are follow-ups, see L16 and L19) |
 | T10 | S11 | The floor/stability/contrast guards and the goldens | (with each task) |
+| T11 | S2, S7, S10, S11 | The update center's live progress: the run's own bar and count, the command in flight and the entries it moves, the entries it did not move, and the end of the manager's output — as the wide frame's card and as the 80x24 floor's four rows | (in the tree, uncommitted — see L33) |
 
 T3 now ships in the current palette so the layout and the vocabulary can be
 reviewed before the palette changes; T1 recolours the same grammar.
@@ -1855,3 +1856,79 @@ Validation: the seven guards (13 subtests), the theme-picker set and the golden 
 35 tests green -- and the full package suite `go test ./internal/tui/ -count=1`, ok in
 463s with no failures. `gofmt -l` clean, `go vet ./internal/tui` clean. No other
 package, no preflight, no commit.
+
+L33. The update center's run has a live progress surface, in the tree and
+uncommitted. L16 and L19 recorded the update center as the section's remaining
+follow-up; this is its running half, added on top of the table, the detail card and
+the keys the screen already had (T11 in the table above).
+
+**One set of facts, drawn twice** (`update_center_progress.go`). The surface is
+built from the model's own run state and nothing else:
+
+- `updateCenterRunSteps` is the sequence as it runs: every command whose
+  `ApplyResult` came back, then -- while `Applying` -- the one in flight and the
+  ones behind it. The finished half is read from `Applied`, not from `Plans`,
+  because the re-read that follows a run replaces the plans with the managers'
+  fresh answers while the run's report has to outlive them.
+- `updateCenterRunTally` counts the entries: `done` is the outcomes the finished
+  commands answered for, `total` is the entries the plans carry, `failed` is
+  `ApplyResult.Failed()`. The bar is `meterRendered(done, total, cells)`, so its
+  fill is whole entries of that fraction -- no timer, no percentage the managers
+  did not report.
+- `updateCenterRunOutcomeCounts` splits one result into confirmed / executed /
+  refused / unknown, so a row says "1 confirmed, 1 not moved" and never folds a
+  stopped run's unknown into a refusal.
+- `updateCenterRunFailures` is every entry a finished command did not move, with
+  the engine's own `Detail`; the manager's reason for the command is what it
+  carries. Entries a stop never reached stay in `NotReached` and are drawn apart,
+  as the report paragraph `- <name> — the run was stopped before its command ran`.
+- `updateCenterRunLogRows`/`updateCenterRunLogParagraphs` are `updates.Tail` of the
+  model's bounded `Log`, behind the same `> ` prompt the installing screen's log
+  card draws.
+
+**The wide surface** is `updateCenterRunCard`, one `cardGroups` in the reference
+grammar: the bar and its count, `Commands` (one row per command, windowed around
+the one in flight, each led by ✓/✗/▸/○), `Not moved` (the failures with their
+reasons, cut with the frame's marker, padded to two rows), and `Output` (the last
+three lines the manager printed, padded). The caption says `step 2 of 3` while it
+runs and `finished` after. It takes the right column above the Actions card while
+a run is on the screen; the entry card the cursor described comes back when the
+report is dismissed by the next run or replaced by the confirmation.
+`updateCenterDetailColumn` drops the card whole if the column cannot hold it beside
+the keys, and the height is a function of the sequence and the reservations only,
+so a result landing or a line arriving rewrites rows that already exist.
+
+**The floor** keeps the section renderer and gets `updateCenterRunParagraphs`:
+exactly four lines, because the update center's detail band is four rows on every
+frame and the fifth line of a longer list would be the frame's cut marker --
+bar and count, `Step 2 of 3 · snap (system)`, `Moving core22`, then the newest fact
+(a failure, else the last command's score, else the end of the output). The old
+running prose is gone: the sentence about an update running and Escape not leaving
+spent the band on what the status bar, the stop row and the footer already say.
+The settled state leads its prose with `updateCenterRunReportParagraphs` (the
+failures and their reasons), which is what keeps a failure readable after the run
+at the floor; the wide shape keeps it in the card.
+
+**Two facts the wide frame had nowhere to put** now have a row: the footer's middle
+line is `updateCenterRunFooterLine` (`Running 2 of 3 · snap (system)`) while a run
+is in flight and `updateCenterRunResultLine` (`Finished: 2 confirmed, 2 not moved`)
+after it, and the frame's state word is `Installing…` while the sequence runs --
+the same five words S2 fixed. The settled `Ready` and every row of the table, the
+detail card and the keys are unchanged.
+
+Guards (`update_center_progress_test.go`, 7 tests): the tally's four cases and the
+fixture's own arithmetic; the wide surface's facts and that its bar fills
+`done/total` of its cells (10 of 20 for 2 of 4) rather than a figure the screen
+rounded; composition stability across a landing result and six arriving lines (the
+frame's row count, the composition's span and each card's span are identical
+before and after, while the words change); the floor's four rows and the absent
+old prose; the failure named with its reason after the run in both shapes; the
+boundary (no run, no surface; a confirmation hides the last run's report); the
+checklist's order, glyphs and window; and the keys, which start nothing while the
+sequence runs. `TestUpdateCenterRunningGolden` (new, 160x50) pins the wide surface;
+`TestUpdateCenterWideGolden` is byte-identical, because the settled screen did not
+move.
+
+Validation was the short loop: `gofmt -l` clean, `go vet ./internal/tui` clean, the
+update center's 48 tests, the frame/section-wide/capture guards (1195), and every
+golden (86, the new one included). No full suite, no preflight, no commit.

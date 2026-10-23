@@ -1624,6 +1624,20 @@ func TestUpdateCenterWideGolden(t *testing.T) {
 	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Actions"))
 }
 
+// TestUpdateCenterRunningGolden pins the run's live surface: the progress card
+// with its bar and count, the sequence with the command in flight naming the
+// entries it is moving, the entry the finished command refused, the end of what
+// the manager printed, and the keys beside it. The floor's shape of the same
+// facts is measured by TestTheFloorShowsTheRunProgress.
+func TestUpdateCenterRunningGolden(t *testing.T) {
+	skipIfTermux(t)
+	m := updateCenterRunFrameCase(t)
+	m.Width, m.Height = 160, 50
+	m.Animating = false
+
+	requireGoldenCapture(t, goldenTranscript(t, m, 160, 50, "Progress"))
+}
+
 func TestDiskCleanerGolden(t *testing.T) {
 	skipIfTermux(t)
 	m := diskCleanerFrameCase(t)

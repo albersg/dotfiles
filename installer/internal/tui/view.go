@@ -291,6 +291,16 @@ func (m Model) statusBar() (string, lipgloss.Style) {
 	switch m.Screen {
 	case ScreenInstalling:
 		return statusInstalling, BrandStyle
+	case ScreenUpdateCenter:
+		// The update center's own run is the one state on this page that is not
+		// Ready: a sequence of manager commands is installing, and the frame says so
+		// in the same word the installing screen uses. A finished run is not "Done" --
+		// the list behind it is a page the reader is still walking -- and what the run
+		// refused is on the progress card, where it happened.
+		if m.UpdateCenter.Applying {
+			return statusInstalling, BrandStyle
+		}
+		return statusReady, SuccessStyle
 	case ScreenThemePicker:
 		return statusPreview, HighlightStyle
 	case ScreenComplete:

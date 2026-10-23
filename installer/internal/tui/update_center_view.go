@@ -337,17 +337,31 @@ func updateScrollbarCell(index, start, end, total int) string {
 }
 
 // updateCenterDetailColumn is the right column: the entry under the cursor and
-// the keys this screen reads. The entry's card is as tall as the tallest reading
-// the cursor can reach and no taller: a card measured from the row under the
-// cursor would change the composition's height as the user walks the list, and one
-// padded to the column's whole budget left a short reading inside a card as tall
-// as the frame.
+// the keys this screen reads -- or, while a run is on the screen, the run's own
+// progress instead of the entry. The entry's card is as tall as the tallest
+// reading the cursor can reach and no taller: a card measured from the row under
+// the cursor would change the composition's height as the user walks the list, and
+// one padded to the column's whole budget left a short reading inside a card as
+// tall as the frame.
 func (m Model) updateCenterDetailColumn(width, budget int) []string {
 	// The keys are the shorter card and the one that must not be cut through, so
 	// they are measured first and the entry's card takes the rows that are left. A
 	// long note then cuts the entry's card with the frame's marker instead of
 	// growing the body past the rows the frame gave it.
 	actions := card("Actions", "Keyboard shortcuts", width, m.updateCenterActionLines(cardContentWidth(width)))
+	if m.updateCenterRunLive() {
+		// The run is the subject while it is on the screen, so it takes the column
+		// above the keys: the entry under the cursor is what the reader was looking
+		// at, and the cursor is not moving anything now. The card is dropped whole
+		// when the column cannot hold it beside the keys -- the keys are how the run
+		// is stopped, and a card drawn half is worse than the floor's prose, which
+		// still carries the same facts.
+		run := m.updateCenterRunCard(width)
+		if len(run)+1+len(actions) <= budget {
+			return append(append(run, ""), actions...)
+		}
+		return actions
+	}
 	entry, ok := m.updateCenterDetailItem()
 	if !ok {
 		return actions
@@ -430,11 +444,21 @@ func (m Model) updateCenterActionLines(width int) []string {
 	return lines
 }
 
-// updateCenterFooterStatus is the footer's middle line: the run in flight, or how
-// many entries the managers reported. It is empty before the first read, so the
-// footer's rule runs whole rather than saying zero.
+// updateCenterFooterStatus is the footer's middle line: the run in flight, what
+// the last one did, or how many entries the managers reported. It is empty before
+// the first read, so the footer's rule runs whole rather than saying zero.
+//
+// The run comes first because the wide frame draws no notice band: this line is
+// where that shape reports what is happening, and "4 updates are available" on a
+// sequence that is installing one of them describes the wrong moment.
 func (m Model) updateCenterFooterStatus() string {
 	state := m.UpdateCenter
+	if state.Applying {
+		return m.updateCenterRunFooterLine()
+	}
+	if len(state.Applied) > 0 && !state.Confirming {
+		return m.updateCenterRunResultLine()
+	}
 	if state.InFlight {
 		if state.Pending != "" {
 			return "Reading " + string(state.Pending) + "…"
