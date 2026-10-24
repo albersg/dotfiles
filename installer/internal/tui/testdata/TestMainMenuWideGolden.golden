@@ -15,7 +15,7 @@
   ╭────────────────────────────────────────────────────────────────────╮  ╭─ What will happen ───────────────────────────────── Your trainer · Did you know? ╮  
   │ ▸  Start Installation                                             │  │──────────────────────────────────────────────────────────────────────────────────│  
   │     Install or update your dotfiles                                │  │ Selected        Start Installation                                               │  
-  │    Update this installer                                          │  │ on Linux (detected)                                                              │  
+  │    Update this installer                                          │  │                 on Linux (detected)                                              │  
   │     Install the release this run found                             │  │ Steps           10                                                               │  
   ├─ Learn ────────────────────────────────────────────────────────────┤  │ ▸  1  Prefer IPv4                                                                │  
   │    Vim & Neovim                                                   │  │       Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into      │  

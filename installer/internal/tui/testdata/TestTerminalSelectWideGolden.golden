@@ -16,7 +16,7 @@
   ╭─ Choose Terminal Emulator ─────────────────────────────────────────╮  ╭─ What will happen ───────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
   │ Select your preferred terminal emulator                            │  │ Selected        Alacritty                                                        │  
-  │ ▸ Alacritty                                                      › │  │ on Linux (detected)                                                              │  
+  │ ▸ Alacritty                                                      › │  │                 on Linux (detected)                                              │  
   │   GPU rendering and a TOML configuration                           │  │ Steps           11                                                               │  
   │  WezTerm                                                        › │  │ ▸  1  Prefer IPv4                                                                │  
   │   Lua configuration with built-in panes                            │  │       Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into      │  

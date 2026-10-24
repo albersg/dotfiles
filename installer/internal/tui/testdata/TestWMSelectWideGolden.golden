@@ -17,7 +17,7 @@
   ╭─ Choose Multiplexer ─── Terminal multiplexer for managing sessions ╮  ╭─ What will happen ───────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
   │ ▸ Tmux                                                           › │  │ Selected        Tmux                                                             │  
-  │   Sessions, windows and panes                                      │  │ on Linux (detected)                                                              │  
+  │   Sessions, windows and panes                                      │  │                 on Linux (detected)                                              │  
   │  Zellij                                                         › │  │ Steps           11                                                               │  
   │   Floating panes, tabs and built-in hints                          │  │ ▸  1  Prefer IPv4                                                                │  
   │  Herdr                                                          › │  │       Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into      │  

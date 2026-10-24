@@ -685,6 +685,16 @@ func centeredBody(lines []string, l layout) []string {
 	return out
 }
 
+// frameComposesBody reports whether the frame itself places a screen's body: it
+// composes the active panel beside a two-column body, and nothing else. A screen
+// whose body the frame does not compose spends the composition's leading margin
+// itself, through centeredBody -- so every one-column page keeps one left edge
+// and one measure on a terminal wider than the composition cap, instead of
+// hugging the frame while the page beside it is centred.
+func (m Model) frameComposesBody(l layout, panels []panel) bool {
+	return l.TwoColumn && len(panels) > 0
+}
+
 // frame wraps a screen body in the persistent frame, asking the registry what
 // panels the screen offers. The header stays on the top row and the footer on the
 // bottom one, and the body is centred in the rows between them: a short screen
@@ -2222,11 +2232,14 @@ func (m Model) renderThemeScreen(description func(Model) []string, screenNotice 
 	listed = append(listed, activity...)
 	// The action tail follows the entries it acts on. The band still reserves the
 	// tail's height and the entries' window, so the tail cannot move when an action
-	// appears with a selection; what moves is only the spare rows, and they go
-	// below the tail instead of above it. Pinning the tail to the band's foot left
-	// a short list with its actions a screenful away from it.
+	// appears with a selection. The list band's spare rows are NOT drawn: they go
+	// back to the frame, which centres what the screen holds. A band that padded
+	// them out left a short screen glued under the header rule with one void above
+	// the status bar -- the theme picker's refresh review at 200x55 spent 32 of its
+	// 50 body rows on nothing. Nothing moves while the cursor walks the screen: a
+	// windowed list fills its band, and a list short enough to leave slack draws the
+	// same rows at every cursor position.
 	listed = append(listed, pinned...)
-	listed = append(listed, padRows(nil, bands.List-len(listed))...)
 	if len(listed) > bands.List {
 		// A tail taller than its reservation keeps the rows that end the screen --
 		// the way back is the last of them -- and gives up the top of the block. The
@@ -2240,10 +2253,10 @@ func (m Model) renderThemeScreen(description func(Model) []string, screenNotice 
 			}
 		}
 	}
-	listed = padRows(listed, bands.List)
 	body = append(body, listed...)
+	// The notice band keeps its reserved rows, so a result that arrives cannot
+	// resize the block it lands in.
 	body = append(body, noticeBand(screenNotice, bands.Notice, width)...)
-	body = padRows(body, bands.Body)
 	if pane {
 		// The detail column is drawn through the same panel assembly the main menu's
 		// panel uses, so the chip, the rule and the cut marker are the ones every
@@ -4210,6 +4223,11 @@ func (m Model) renderToolInfo(tools map[string]ToolInfo, toolKey string) string 
 func (m Model) renderSingleToolInfo(info ToolInfo) string {
 	hints := []installerHint{hintBack, hintQuit}
 	if body, ok := m.toolInfoCardBody(info, hints); ok {
+		// One column, so the card takes the composition's leading margin here: the
+		// frame only composes a body beside a panel.
+		if l := layoutFor(m); !m.frameComposesBody(l, m.panelsFor()) {
+			body = centeredBody(body, l)
+		}
 		return m.frame(m.headerName(), "", body, hints)
 	}
 
@@ -4318,6 +4336,14 @@ func (m Model) renderReferenceTable(table referenceTable, scroll int) string {
 	vital := ""
 	if end-start < len(table.Rows) {
 		vital = scrollVital("Showing", start+1, end, len(table.Rows))
+	}
+	// The page is one column unless a page registers a panel, so the frame cannot
+	// compose it: the card takes the composition's own leading margin here, exactly
+	// as the menu pages and the setup table do, or a 200-column terminal would draw
+	// this page against the frame's left edge while every page beside it was
+	// centred.
+	if l := layoutFor(m); !m.frameComposesBody(l, m.panelsFor()) {
+		body = centeredBody(body, l)
 	}
 	return m.frame(m.headerName(), vital, body, referencePageHints())
 }
@@ -4454,6 +4480,13 @@ func (m Model) renderMenu(description string) string {
 	panels := m.panelsFor()
 	hints := m.panelHints(panels, []installerHint{hintUp, hintDown, hintOpen, hintBack})
 	body, start, end, total := m.menuCardBody(m.GetScreenTitle(), description, hints)
+	l := layoutFor(m)
+	// A menu with no registered panel is one column, so the frame cannot place it:
+	// the card takes the composition's leading margin here. A menu with a panel is
+	// composed beside it by the frame, which spends the same margin itself.
+	if !m.frameComposesBody(l, panels) {
+		body = centeredBody(body, l)
+	}
 
 	// The scroll range is the menu's vital sign in the header. A menu whose list
 	// fits has nothing to report and gets no filler.
@@ -4730,9 +4763,14 @@ func (m Model) renderLazyVimTopic() string {
 		}
 	}
 
-	// The card is the page's frame now, so the body is not indented here: the
-	// frame centres the composition, exactly as it does for every other card.
+	// The card is the page's frame now. The page has no registered panel, so the
+	// frame does not compose the body; the card takes the composition's leading
+	// margin here, on the same measure as every other one-column page.
 	body := lazyVimTopicCard(topic, lines, width)
+	l := layoutFor(m)
+	if !m.frameComposesBody(l, m.panelsFor()) {
+		body = centeredBody(body, l)
+	}
 
 	vital := ""
 	if len(allLines) > viewHeight {
@@ -5339,7 +5377,8 @@ func stepFraction(step InstallStep) float64 {
 // has, which is the same meter the header uses for the run.
 func (m Model) renderInstalling() string {
 	width := contentWidth(m)
-	composition := layoutFor(m).Composition
+	l := layoutFor(m)
+	composition := l.Composition
 	hints := []installerHint{hintDetails, hintStopRun}
 	// The offer's own hint leads while the run is paused on it: it is the action
 	// the step is waiting for, and the other two stay so the keys already on the
@@ -5358,6 +5397,9 @@ func (m Model) renderInstalling() string {
 			head = head[:keep]
 		}
 		body := append(append([]string(nil), head...), m.installingProgressRow(composition))
+		if !m.frameComposesBody(l, m.panelsFor()) {
+			body = centeredBody(body, l)
+		}
 		return m.frame(m.headerName(), m.installingVital(), body, hints)
 	}
 
@@ -5390,6 +5432,13 @@ func (m Model) renderInstalling() string {
 	body = append(body, live...)
 	body = append(body, m.installingProgressRow(composition))
 
+	// The run's stack is one column of the composition, so the frame cannot compose
+	// it beside a panel: the leading margin is spent here, or a terminal wider than
+	// the composition cap would anchor the checklist, the look-ahead column and the
+	// bar to the frame's left edge while every other screen was centred.
+	if !m.frameComposesBody(l, m.panelsFor()) {
+		body = centeredBody(body, l)
+	}
 	return m.frame(m.headerName(), m.installingVital(), body, hints)
 }
 

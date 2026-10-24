@@ -95,7 +95,10 @@ const adminPasswordMaskLimit = 24
 // literal line longer than the terminal makes the whole screen overflow, which a
 // guard measures at twelve terminal sizes down to 60x20.
 func (m Model) renderAdminPassword() string {
-	width := contentWidth(m)
+	// The prose is the composition's measure, not the terminal's: a 200-column
+	// terminal would otherwise wrap these sentences at 196 columns and then centre a
+	// block wider than the composition every other screen shares.
+	width := layoutFor(m).Composition
 	hints := []installerHint{hintValidate, hintTerminal}
 
 	typed := len(m.AdminPassword)
@@ -129,6 +132,9 @@ func (m Model) renderAdminPassword() string {
 		body = append(body, MutedStyle.Render(row))
 	}
 
+	if l := layoutFor(m); !m.frameComposesBody(l, m.panelsFor()) {
+		body = centeredBody(body, l)
+	}
 	return m.frame(m.headerName(), "", body, hints)
 }
 

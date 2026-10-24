@@ -303,6 +303,10 @@ var measuredTerminalSizes = []struct {
 	{"120x34", 120, 34},
 	{"140x44", 140, 44},
 	{"160x50", 160, 50},
+	// 200x55 is the terminal the reference screens and the VHS tapes are reviewed
+	// at: the wide frame with the composition cap's symmetric margins. A size the
+	// interface is judged at belongs in the grid it is measured at.
+	{"200x55", 200, 55},
 	{"200x60", 200, 60},
 	{"227x62", 227, 62},
 	{"80x30", 80, 30},

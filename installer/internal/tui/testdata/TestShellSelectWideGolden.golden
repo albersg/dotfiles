@@ -17,7 +17,7 @@
   ╭─ Choose Your Shell ────────────────────────────────────────────────╮  ╭─ What will happen ───────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
   │ Current shell: zsh — the cursor starts on it when the menu lists   │  │ Selected        Zsh                                                              │  
-  │ it                                                                 │  │ on Linux (detected)                                                              │  
+  │ it                                                                 │  │                 on Linux (detected)                                              │  
   │  Fish                                                           › │  │ Steps           11                                                               │  
   │   Fisher and the functions this repository ships                   │  │ ▸  1  Prefer IPv4                                                                │  
   │ ▸ Zsh                                                            › │  │       Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into      │  

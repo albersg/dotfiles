@@ -16,7 +16,7 @@
   ╭─ Neovim Configuration ─────────────────────────────────────────────╮  ╭─ What will happen ───────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
   │ Includes LSP, TreeSitter, and dotfiles config                      │  │ Selected        Yes, install Neovim with config                                  │  
-  │ ▸ Yes, install Neovim with config                                › │  │ on Linux (detected)                                                              │  
+  │ ▸ Yes, install Neovim with config                                › │  │                 on Linux (detected)                                              │  
   │   LSP, TreeSitter and the dotfiles config                          │  │ Steps           11                                                               │  
   │  No, skip Neovim                                                › │  │ ▸  1  Prefer IPv4                                                                │  
   │   Leave Neovim on this machine alone                               │  │       Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into      │  

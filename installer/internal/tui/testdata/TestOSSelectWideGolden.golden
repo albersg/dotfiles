@@ -19,7 +19,7 @@
   ╭─ Select Your Operating System ──────────────────── Detected: Linux ╮  ╭─ What will happen ───────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
   │ ▸ macOS                                                          › │  │ Selected        macOS                                                            │  
-  │   Homebrew and the Apple toolchain                                 │  │ on macOS                                                                         │  
+  │   Homebrew and the Apple toolchain                                 │  │                 on macOS                                                         │  
   │  Linux                                                          › │  │ Steps           9                                                                │  
   │   Your distribution's package manager                              │  │ ▸ 1  Install Xcode CLI                                                           │  
   │  Termux                                                         › │  │      Installs the Apple developer command-line tools.                            │  

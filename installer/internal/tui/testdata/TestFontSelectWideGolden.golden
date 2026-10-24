@@ -19,7 +19,7 @@
   ╭─ Nerd Font Installation ───────────────────────────────────────────╮  ╭─ What will happen ───────────────────────────────────────────────────────────────╮  
   │────────────────────────────────────────────────────────────────────│  │──────────────────────────────────────────────────────────────────────────────────│  
   │ Meslo Nerd Font is required for icons and glyphs                   │  │ Selected        Install Meslo Nerd Font                                          │  
-  │ ▸ Install Meslo Nerd Font                                        › │  │ on Linux (detected)                                                              │  
+  │ ▸ Install Meslo Nerd Font                                        › │  │                 on Linux (detected)                                              │  
   │   The Nerd Font patch of Meslo                                     │  │ Steps           11                                                               │  
   │  Skip it                                                        › │  │ ▸  1  Prefer IPv4                                                                │  
   │   Leave the fonts on this machine alone                            │  │       Raises IPv4 above IPv6 in /etc/gai.conf so downloads do not fall into      │  

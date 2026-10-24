@@ -2380,3 +2380,83 @@ word changed in any of them, and `TestWelcomeScreenGolden` (80x24) is untouched.
 Validation was the short loop: `make check` (gofmt, `go vet ./...`, and
 `./internal/tui`, every golden included) passed. No full suite, no preflight, no
 captures, no commit.
+
+L40. The audit at the terminal the interface is read at: every screen measured at
+200x55, 160x50 and the 80x24 floor, in the tree (uncommitted). The user asked for
+the composition's margins, its centring, the card and fact-row grammar and the
+wrapping to be checked at the size their own captures show, not at the widths the
+pass happened to be built at.
+
+**What was there.** The frames were rendered by the real renderers (the capture
+harness and the VHS tape at 200x55) and read. Three things the composition promises
+did not hold once the terminal was wider than the composition cap:
+
+- **The leading margin was missing on the pages that draw their own one-column
+  body.** `frameWithPanels` composes the active panel beside a two-column body and
+  centres nothing else, so a page that built its card at `l.Composition` and handed
+  it to the frame hugged the frame's left edge: the installing screen (checklist,
+  look-ahead column and progress bar, at columns 2-162 instead of 20-180), every
+  keymap category, WezTerm/Alacritty settings, the learn reference pages, the
+  LazyVim topic, the learn-tool menu and the password screen (drawn at the whole
+  inner width, 196 columns of prose). The boss-fight result's stat row was the same
+  fault inside the trainer's own frame: the boxes sat on the frame's edge while the
+  summary card under them was centred.
+- **The section renderer padded its list band out to the frame.** `renderThemeScreen`
+  ended on `padRows(body, bands.Body)`, so a screen with no windowed list was glued
+  under the header rule with the band's height as one void: the theme picker's
+  refresh review spent 32 of its 50 body rows that way at 200x55. The same shape sat
+  on seven other band screens at the sizes where they do not take the card grammar
+  (the SSH screens, the update centre, the doctor at the floor).
+- **The plan panel's host note broke the fact-row rhythm.** It was drawn from the
+  label column and truncated, so "Selected / Start Installation" was followed by
+  "on Debian/Ubuntu (detected)" at column 0 of the panel while every other
+  label-less row (the overwrite list, the backups) starts at the value column.
+
+**The fix.** `frameComposesBody` names the one case in which the frame places the
+body itself; every renderer that draws its own one-column body now spends the
+composition's leading margin through `centeredBody` when the frame does not, which
+is the idiom `renderSetup`, the utilities section and the theme picker already used.
+The band renderer no longer draws the list band's spare rows -- the reservations
+that keep rows still (the tail, the activity slot, the notice band) are untouched,
+and a windowed list still fills its band, so nothing moves as the cursor walks --
+and the frame centres what the screen holds. The password screen wraps at the
+composition's measure instead of the terminal's, so centring cannot silently cut
+the sentence it just wrapped. The host note takes a `panelNote`: the value column,
+the same wrap, the muted tone. The trainer's stat row is centred with the card it
+belongs to.
+
+**Left as it is, with reasons.** The 80x24 floor keeps the shapes it had (the
+compact list, the one-row rows, the bars): it is the documented floor, every
+action stays reachable and the frames are unchanged there apart from the band
+centring. A value longer than its column still wraps (the utilities panel's
+"Selected" and the dashboard's environment sentence, which puts "build)" on its own
+line at 200x55): the measure is the column, the wrap is the two-column layout and
+not a cut, and rewording the copy is not this pass. The theme picker's refresh
+review and the wizard questions leave the creature's block reserved when animation
+is off (`--no-anim`, `DOTFILES_ANIM=0`): the reservation is what keeps the body
+still if a run does animate, and the block reads as the pet's slot. The setup's
+row detail is still a band under the full-width table rather than a card in a right
+column; making it a card means re-laying the table out, which is a redesign. The
+trainer's own frame pins the creature to the foot of its frame by design, so its
+slack sits between the content and the pet (its guards measure it). A key list
+longer than the trainer's two-line row is still cut with the frame's marker, and
+"Run only: …" is a constant row, not a truncation.
+
+Guards (`screen_centring_test.go`):
+`TestEveryScreenSharesTheCompositionMargins` renders all 96 measured cases at
+200x55 and 227x62 with animation off and fails on any body ink outside the
+composition's columns; `TestNoScreenIsGluedToTheHeaderRule` reads the blank rows
+above and below each body at 200x55, 160x50 and 80x24 and fails when the foot is
+blanker than the head by more than the creature's block and the notice band;
+`TestThePlanPanelsNoteRidesTheValueColumn` reads the panel's own rows;
+`TestTrainerBossResultBoxesShareTheCardsEdge` compares the stat row's column with
+the summary card's. Each guard was run against the tree with its fix reverted and
+failed there, then passed here. `200x55` also joins `measuredTerminalSizes` and the
+capture harness's sizes, so the size the screens are judged at is in the grid they
+are measured at.
+
+Goldens regenerated (11): `TestMainMenuWideGolden`, the five picker wide goldens,
+`TestThemeRefreshReviewGolden`, `TestNetworkDiagnosticsGolden` and the three
+companion goldens that render the main menu at 160x50 -- the note's column moved,
+blank rows moved, no key, value or word changed. Validation: `go vet ./...` and the
+whole `./internal/tui` package (goldens included) pass. No commit.

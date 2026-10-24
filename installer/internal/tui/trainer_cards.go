@@ -450,7 +450,10 @@ func (m Model) trainerBossResultCardBody(l layout, budget int) ([]string, bool) 
 
 	var body []string
 	if boxes := m.trainerBossResultBoxes(width); len(boxes) > 0 {
-		body = append(body, boxes...)
+		// The stat row is the composition's width and the card under it is centred;
+		// the row takes the same margin, so the two objects share one left edge
+		// instead of the boxes hugging the frame on a terminal wider than the cap.
+		body = append(body, centeredBody(boxes, l)...)
 		body = append(body, "")
 	}
 

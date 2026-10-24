@@ -933,6 +933,27 @@ func panelFact(label, value string, width int) []string {
 	return rows
 }
 
+// panelNote is a fact row with no label of its own: the text is wrapped to the
+// value column and drawn in the muted tone, for the lines that annotate the row
+// above them rather than stating a fact -- the host the selection is for, the
+// continuation of a selection's name. It shares panelFact's arithmetic, so a note
+// and the fact it continues start and wrap at the same column.
+func panelNote(text string, width int) []string {
+	measure := min(panelLabelMeasure, max(1, width-panelLabelGap-1))
+	valueWidth := max(1, width-measure-panelLabelGap)
+	lines := wrapText(text, valueWidth, 0)
+	if len(lines) == 0 {
+		return nil
+	}
+
+	indent := strings.Repeat(" ", measure+panelLabelGap)
+	rows := make([]string, len(lines))
+	for i, line := range lines {
+		rows[i] = indent + MutedStyle.Render(line)
+	}
+	return rows
+}
+
 // welcomePanelLabel names the welcome screen's right column. The welcome screen
 // answers "where am I", so its panel is the machine the installer is about to
 // change.
@@ -1418,7 +1439,12 @@ func (m Model) planPanelFacts(l layout) []string {
 func (m Model) planPanelRows(steps []InstallStep, hostNote string, l layout) []string {
 	var rows []string
 	if hostNote != "" {
-		rows = append(rows, MutedStyle.Render(truncate(hostNote, l.Right)))
+		// The note is the selection's own continuation -- "Start Installation / on
+		// Debian/Ubuntu (detected)" -- so it takes the fact rows' value column and
+		// wraps there, like every other label-less row (the overwrite list, the
+		// backups). Drawn from the label column it read as a broken row: the one row
+		// in the panel that started in the wrong place, and its wrap moved again.
+		rows = append(rows, panelNote(hostNote, l.Right)...)
 	}
 	if len(steps) > 0 {
 		rows = append(rows, panelFact("Steps", strconv.Itoa(len(steps)), l.Right)...)

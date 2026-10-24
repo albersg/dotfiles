@@ -77,8 +77,14 @@ var redesignedPages = []struct {
 	{"trainer-boss-result", func(t *testing.T) Model { return trainerCardModel(t, ScreenTrainerBossResult, 80, 24) }},
 }
 
+// captureSizes are the frames the redesigned pages are written at: the 80x24 floor
+// every screen must survive, the 160x50 size the rest of the frames are read at, and
+// the 200x55 size the reference screens and the VHS tapes are reviewed at, where the
+// composition cap leaves symmetric margins on both sides.
+var captureSizes = [][2]int{{80, 24}, {160, 50}, {200, 55}}
+
 // TestCaptureEveryRedesignedPage writes the frames of the pages this pass changed,
-// at the 80x24 floor and at the wide frame a capture is reviewed in, so the layout
+// at the 80x24 floor and at the wide frames a capture is reviewed in, so the layout
 // of a slice can be read instead of assumed. It is opt-in and writes nothing unless
 // DOTFILES_CAPTURE_DIR is set, exactly like TestCaptureEveryScreen: a test that
 // writes files into the machine is not a check.
@@ -93,7 +99,7 @@ func TestCaptureEveryRedesignedPage(t *testing.T) {
 
 	for _, page := range redesignedPages {
 		page := page
-		for _, size := range [][2]int{{80, 24}, {160, 50}} {
+		for _, size := range captureSizes {
 			m := page.build(t)
 			m.Width, m.Height = size[0], size[1]
 			m.Animating = false

@@ -171,8 +171,11 @@ func (m Model) sectionBandFor() sectionBand {
 
 // sectionBands is the row arithmetic of one rendered section screen. Every field
 // is a number of rows, and the sum of the bands is exactly Body -- the rows the
-// frame leaves between the header rule and the rule above the footer -- so a
-// section screen fills its frame instead of floating in it.
+// frame leaves between the header rule and the rule above the footer -- so every
+// reservation is measured against the whole frame. The rows the LIST band does not
+// spend are returned to the frame rather than drawn as blanks (renderThemeScreen):
+// the frame centres the block, so a screen with a short list is centred in its
+// rows instead of being glued under the header rule with one void under it.
 type sectionBands struct {
 	Footer   int // rows the footer reserves, including the hints a selection can add
 	Body     int // rows between the two rules
