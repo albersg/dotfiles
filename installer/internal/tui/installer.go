@@ -7534,12 +7534,12 @@ func stepInstallShell(m *Model) error {
 		fishConfig := filepath.Join(homeDir, ".config", "fish", "config.fish")
 		preservedFish, err := system.ReplaceUserConfig(filepath.Join(repoDir, repoAssetFish, "config.fish"), fishConfig,
 			"# dotfiles-managed-config: fish", filepath.Join(homeDir, ".config", "fish", "dotfiles.d"),
-			"dotfiles-user-config", ".fish")
+			"dotfiles-user-config", ".fish.bak")
 		if err != nil {
 			return wrapStepError("shell", "Install Fish", "Failed to preserve existing Fish configuration", err)
 		}
 		if preservedFish != "" {
-			SendLog(stepID, fmt.Sprintf("Preserved your existing Fish configuration at %s; dotfiles loads it last from ~/.config/fish/dotfiles.d/.", preservedFish))
+			SendLog(stepID, fmt.Sprintf("Preserved your existing Fish configuration at %s; it is kept as a backup and is not sourced.", preservedFish))
 		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Fish",
@@ -7642,12 +7642,12 @@ func stepInstallShell(m *Model) error {
 		}
 		zshrcPath := filepath.Join(homeDir, ".zshrc")
 		preservedZsh, err := system.ReplaceUserConfig(filepath.Join(repoDir, repoAssetZshrc), zshrcPath,
-			"# dotfiles-managed-config: zsh", filepath.Join(homeDir, ".zshrc.d"), "dotfiles-user-config", ".zsh")
+			"# dotfiles-managed-config: zsh", filepath.Join(homeDir, ".zshrc.d"), "dotfiles-user-config", ".zsh.bak")
 		if err != nil {
 			return wrapStepError("shell", "Install Zsh", "Failed to preserve existing .zshrc", err)
 		}
 		if preservedZsh != "" {
-			SendLog(stepID, fmt.Sprintf("Preserved your existing .zshrc at %s; it is sourced from ~/.zshrc.d/.", preservedZsh))
+			SendLog(stepID, fmt.Sprintf("Preserved your existing .zshrc at %s; it is kept as a backup and is not sourced.", preservedZsh))
 		}
 		// Patch .zshrc based on WM choice
 		SendLog(stepID, "Configuring shell for window manager...")

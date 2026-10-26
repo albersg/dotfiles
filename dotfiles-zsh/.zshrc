@@ -19,7 +19,22 @@ export ZSH="$HOME/.oh-my-zsh"
 # (installer/internal/system/exec.go): WM_VAR, the WM_CMD array, the guard and
 # the `start_if_needed` call have to keep their exact form.
 # ---------------------------------------------------------------------------
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:$PATH"
+# Only directories that exist: an entry that resolves to nothing costs a lookup
+# and hides a later mistake behind a dead path.
+_dotfiles_paths=()
+for _dotfiles_path in "$HOME/.local/bin" "$HOME/.cargo/bin" /opt/homebrew/bin \
+    /home/linuxbrew/.linuxbrew/bin "$HOME/.nix-profile/bin" \
+    /nix/var/nix/profiles/default/bin /usr/local/bin; do
+    [[ -d "$_dotfiles_path" ]] && _dotfiles_paths+=("$_dotfiles_path")
+done
+[[ ${#_dotfiles_paths[@]} -gt 0 ]] && export PATH="${(j.:.)_dotfiles_paths}:$PATH"
+unset _dotfiles_path _dotfiles_paths
+
+# Drop entries that are not directories and keep one copy of each: an entry that
+# resolves to nothing costs a lookup and hides a later mistake behind a dead
+# path, and a duplicate makes PATH harder to read. zsh's `path` array is PATH.
+typeset -U path
+path=($^path(N-/))
 
 WM_VAR="$HERDR_ENV"
 
@@ -49,9 +64,19 @@ fi
 # Set PATH based on platform
 if [[ $IS_TERMUX -eq 1 ]]; then
     # Termux - use PREFIX for binaries
-    export PATH="$PREFIX/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    _dotfiles_paths=()
+    for _dotfiles_path in "$PREFIX/bin" "$HOME/.local/bin" "$HOME/.cargo/bin"; do
+        [[ -d "$_dotfiles_path" ]] && _dotfiles_paths+=("$_dotfiles_path")
+    done
+    [[ ${#_dotfiles_paths[@]} -gt 0 ]] && export PATH="${(j.:.)_dotfiles_paths}:$PATH"
+    unset _dotfiles_path _dotfiles_paths
 else
-    export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.cargo/bin:$HOME/.volta/bin:$HOME/.bun/bin:$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin:$PATH"
+    _dotfiles_paths=()
+    for _dotfiles_path in "$HOME/.local/bin" "$HOME/.opencode/bin" "$HOME/.cargo/bin" "$HOME/.volta/bin" "$HOME/.bun/bin" "$HOME/.nix-profile/bin" /nix/var/nix/profiles/default/bin /usr/local/bin; do
+        [[ -d "$_dotfiles_path" ]] && _dotfiles_paths+=("$_dotfiles_path")
+    done
+    [[ ${#_dotfiles_paths[@]} -gt 0 ]] && export PATH="${(j.:.)_dotfiles_paths}:$PATH"
+    unset _dotfiles_path _dotfiles_paths
 fi
 
 # Set nvim as default editor for opencode and other tools
@@ -943,7 +968,13 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
   fi
 fi
 
-export PATH="$HOME/go/bin:$PATH"
+[[ -d "$HOME/go/bin" && ":$PATH:" != *":$HOME/go/bin:"* ]] && export PATH="$HOME/go/bin:$PATH"
+
+# Final PATH hygiene: an inherited PATH can name directories this machine does
+# not have, and a block above can add one twice. zsh's `path` array is PATH;
+# `typeset -U` keeps one copy of each and `(N-/)` keeps only directories.
+typeset -U path
+path=($^path(N-/))
 
 # ─── User extension point ─────────────────────────────────────────────────────
 # Files under ~/.zshrc.d/ belong to the user, not to this configuration: the
