@@ -2626,12 +2626,12 @@ func installerFrameCase(t *testing.T, name string) Model {
 		m := base(ScreenAdminPassword)
 		m.AdminPassword = append(make([]byte, 0, adminPasswordCapacity), []byte("a-typed-password")...)
 		return m
-	case "admin-password-failed":
-		// The same screen carrying a refusal, which adds a line the empty state does
-		// not have: the guard has to measure the taller of the two.
+	case "admin-password-checking":
+		// The same screen while the attempt is in flight, which adds a line the empty
+		// state does not have: the guard has to measure the taller of the two.
 		m := base(ScreenAdminPassword)
 		m.AdminPassword = append(make([]byte, 0, adminPasswordCapacity), []byte("a-typed-password")...)
-		m.AdminPasswordErr = "that password was not accepted"
+		m.AdminPasswordPending = true
 		return m
 	case "backup-confirm":
 		return withConfigs(ScreenBackupConfirm, []string{
@@ -2789,7 +2789,7 @@ var installerFrameScreenNames = []string{
 	"installing-live",
 	"wsl-advisor", "wsl-advisor-reading", "wsl-benchmark", "wsl-migration",
 	"complete", "error", "error-many-logs",
-	"admin-password", "admin-password-failed",
+	"admin-password", "admin-password-checking",
 	// The SSH manager's seven screens. Each one is a state it reaches in normal
 	// use: the hub with hosts, the detail of an editable and of a read-only entry,
 	// the form and its plan, the key list and its generation form, the agent, the

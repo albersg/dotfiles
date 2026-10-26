@@ -2460,3 +2460,108 @@ Goldens regenerated (11): `TestMainMenuWideGolden`, the five picker wide goldens
 companion goldens that render the main menu at 160x50 -- the note's column moved,
 blank rows moved, no key, value or word changed. Validation: `go vet ./...` and the
 whole `./internal/tui` package (goldens included) pass. No commit.
+
+L41. The administrator password is asked on the installer's own screen on both
+paths, and the terminal handover is gone, in the tree (uncommitted). The user
+reported that the credential ask sends them back to the zsh prompt -- "no quiero
+que me mande a la terminal a pedir la contraseña" -- and that the handover it used
+(`tea.ExecProcess` around `sudo -v`) prompted from the shell and then hung.
+
+**What was there.** `admin_password.go` already had the installer's screen, and the
+installation's step loop already reached it: the probe (`sudo -n -v`) failed, the
+run put `ScreenAdminPassword` up, and Enter ran `sudo -S -v` with the password on
+the child's standard input. Three ways off that screen still left the interface, or
+could never leave it:
+
+- **Esc went back to the terminal.** `updateAdminPassword` answered Escape with
+  `sudoTerminalPrimer`, which is `tea.ExecProcess` around `sudo -v`: the screen was
+  released, sudo prompted in the shell, and the interface came back afterwards. That
+  is exactly the hop the user reported, on the key the screen offers as its way out.
+- **The update centre's apply still asked there.** `updateCenterHandleCredentialCheck`
+  answered a failed probe with `sudoTerminalExec`, the same `tea.ExecProcess`, so
+  the path that reported the hang was still a handover.
+- **The scripted route asked in the shell too.** `--non-interactive` reaches
+  `stepInstallDeps` without a screen, and `primeSudoForStep` answered its failed
+  probe with `sudoTerminalAsk` (`system.RunTerminal`, `sudo -v` on this process's
+  terminal): a prompt in the outer shell with nothing behind it.
+- **A wrong password kept the screen up for ever**, with no bound on the wait, and
+  a sudo that ignores standard input -- `Defaults requiretty`, an askpass-only
+  configuration -- left the field holding the attempt with nothing to end it.
+
+**The fix.** One ask, one screen, one exit. `askAdminPassword(flow)` puts the
+screen up and records which flow asked (`credentialAskStepLoop`,
+`credentialAskUpdateCenter`); `sudoPrimedMsg` carries the attempt number, so an
+answer that arrives after the screen was released is a straggler and resumes
+nothing; `releaseAdminPassword` is the only way off the screen and resumes the flow
+that asked. Every outcome releases it: a success caches the credential and resumes
+the sequence, a refusal writes its reason to the run's own record and resumes it
+too, and Escape or ctrl+c on that screen cancel the attempt and resume it. The run
+then reports the missing credential the way it always did -- through `sudo -n`, in
+the manager's own words, in the step's error or the update centre's per-entry
+outcome -- which is the report the user can act on. There is no retry on the
+screen: the run keeps its one attempt (`SudoPrimeAttempted`), so a refusal cannot
+become the loop of prompts the run exists to avoid.
+
+The wait is bounded. `defaultSudoPasswordPrimer` runs `sudo -S -v` through
+`exec.CommandContext` under `sudoPasswordTimeout` (30s, a variable), so a sudo that
+never answers is killed and reported as "sudo did not answer in time, so the
+attempt was stopped" rather than leaving the screen waiting; the bytes are still
+zeroed by the deferred clear, and the kill is what makes the clear meaningful --
+an abandoned sudo would still be reading them. While an attempt is in flight the
+field ignores every other key (`AdminPasswordPending`), so a second reader can
+never be handed the same buffer, and the two cancel keys still work. On the
+scripted route there is no screen, so `primeSudoForStep` no longer prompts at all:
+it probes, and on failure returns a message that names both ways out (`sudo -v`
+first, or the interactive installer that asks on its own screen). `dependencyInstallError`
+now says the same thing where the command fails. The password screen's refusal line
+and `AdminPasswordErr` are gone with the retry they described, the footer's Escape
+reads `cancel`, and a line explains that Escape goes on without it.
+
+**Security.** The password is a `[]byte` of fixed capacity (unchanged, and why: the
+model is copied on every keystroke, so one backing array is the only thing that can
+be cleared once); it travels on the child's standard input, never in its arguments;
+it is zeroed by the primer as soon as sudo has read it and the field is emptied on
+every exit; nothing writes it to `LogLines`, the run's error, the update centre's
+log or the screen, which draws bullets and a count. No sudo stderr is passed
+through: `sudoPasswordFailure` turns it into one line, because it names the
+invoking account and the host.
+
+Guards: `TestARefusedPasswordReleasesTheScreenWithTheReason` (the reported hang:
+the screen goes, the reason is on the run, sudo's stderr is not),
+`TestAStuckSudoCannotFreezeTheScreen` (a `sudo` that ignores stdin and sleeps, a
+100ms bound, and the release), `TestASudoThatNeedsATerminalSaysSoAndReleasesTheScreen`
+(no tty/askpass, said plainly and released), `TestEscapeReleasesTheScreenInsteadOfAskingElsewhere`
+and `TestCtrlCWhileAskingReleasesTheScreenInsteadOfQuitting` (both keys release
+without quitting), `TestAnAnswerToACancelledAttemptIsDiscarded` (the straggler),
+`TestThePasswordNeverReachesTheScreenTheLogOrAModelCopy` (both a success and a
+refusal: the mask mid-attempt, the log, the error, and the field),
+`TestThePromptAppearsForBothFlows`, `TestTheUpdateApplyAsksOnTheInstallerScreenBeforeItsFirstRootCommand`,
+`TestTheUpdateApplyAsksForTheCredentialOnlyOnce`,
+`TestTheCachedCredentialIsNeverAskedForBeforeTheUpdateRuns`,
+`TestARefusedPasswordReleasesTheUpdateRunWithTheManagersReason` (the outcome is
+`StatusPermission` and its reason carries "a password is required"),
+`TestACancelledPasswordReleasesTheUpdateRun`, `TestTheUpdateApplyAndTheStepLoopAskThroughTheSameScreen`,
+`TestTheScriptedStepProbesTheCredentialBeforeItsFirstRootCommand`,
+`TestTheScriptedStepNeverAsksInTheOuterShell` (and the message it reports),
+`TestAMissingCredentialDoesNotAbortTheStepAndIsReported`,
+`TestTheProbeAndTheScreenAskSudoTheSameWay` (a fake `sudo` on PATH: the probe gets
+`-n -v` and no `-S`, the attempt exactly `-S -v` with the bytes on stdin and not in
+argv), and `TestTheCredentialPathNeverHandsTheTerminalOver`, which reads the three
+files and refuses `tea.ExecProcess` or `system.RunTerminal` in any of them.
+
+Two guards were run red first and then green: with the timeout removed,
+`TestAStuckSudoCannotFreezeTheScreen` failed with "the attempt did not answer within
+10s, so a stuck sudo froze the run"; with `answerAdminPassword` returning the screen
+instead of releasing it, `TestARefusedPasswordReleasesTheScreenWithTheReason` failed
+with "a refused password left the run waiting on the password screen".
+
+No golden moved: no golden draws the password screen, and the frame guards' case for
+it now renders the in-flight state (`admin-password-checking`) because the refusal
+line it used to render no longer exists. Validation: `gofmt -l` clean,
+`go vet ./internal/tui ./internal/system` clean, the 68 credential guards, the frame
+and centring guards (564 tests) and `TestCompanionBlockDependsOnlyOnTheTerminal`
+(the screen set changed) pass, and the whole `./internal/tui` package passed before
+the last two copy edits (7781 tests). That package run took 8m12s of wall time on
+this host against Go's 10-minute default timeout -- the suite is dominated by waits,
+not by these guards (which add 1.5s), so the margin is thin and pre-existing. No
+commit.

@@ -15,9 +15,9 @@ import (
 // runner, so a failing sudo can be exercised without touching the host.
 //
 // The credential seams are stubbed too: these tests are about which command the
-// step runs, not about the ask that makes the command possible, and the probe is
-// answered "already cached" so the step does not try to prompt a terminal this
-// test does not have. deps_credential_test.go is where the ask itself is measured.
+// step runs, not about the probe that makes the command possible, and the probe is
+// answered "already cached" so the step does not report a credential this test
+// cannot supply. deps_credential_test.go is where the request itself is measured.
 func withDepsMocks(t *testing.T, sudoResult *system.ExecResult) *[]packageCommandCall {
 	t.Helper()
 
@@ -25,7 +25,6 @@ func withDepsMocks(t *testing.T, sudoResult *system.ExecResult) *[]packageComman
 	originalSudo := runSudoWithLogs
 	originalBrew := runBrewWithLogs
 	originalProbe := sudoCredentialCached
-	originalAsk := sudoTerminalAsk
 
 	calls := []packageCommandCall{}
 
@@ -48,17 +47,12 @@ func withDepsMocks(t *testing.T, sudoResult *system.ExecResult) *[]packageComman
 	}
 
 	sudoCredentialCached = func() error { return nil }
-	sudoTerminalAsk = func() error {
-		t.Error("a dependency test reached the terminal credential ask; its probe must be answered as already cached")
-		return nil
-	}
 
 	t.Cleanup(func() {
 		runPkgInstallWithLogs = originalPkg
 		runSudoWithLogs = originalSudo
 		runBrewWithLogs = originalBrew
 		sudoCredentialCached = originalProbe
-		sudoTerminalAsk = originalAsk
 	})
 
 	return &calls

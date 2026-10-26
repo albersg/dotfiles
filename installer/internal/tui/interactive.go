@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,66 +55,17 @@ func defaultSudoPrimer() tea.Cmd {
 	}
 }
 
-// sudoTerminalPrimer is the seam for the way out of the installer's own prompt. It
-// is the handover the run used to make for every request, kept for the case an
-// in-screen prompt cannot cover: a system whose PAM wants a terminal -- a
-// two-factor or fingerprint module, or a legacy `Defaults requiretty` -- cannot be
-// authenticated through `sudo -S` at all, and that has to be a way forward rather
-// than a dead end.
-var sudoTerminalPrimer = defaultSudoTerminalPrimer
-
-// sudoTerminalCommand is the command every form of the terminal ask runs. `-v`
-// refreshes the cached credential without running anything as root, which is all
-// a step's `sudo -n` needs, so the ask itself is spelled once and both handovers
-// ask the same question.
-const sudoTerminalCommand = "sudo"
-
-// sudoTerminalExec is the program's form of the terminal ask: `sudo -v` handed the
-// terminal through the program's own release of the screen, with the caller's
-// message as the answer.
-//
-// It exists because two callers own the same screen and ask the same question. The
-// installing screen resumes its step loop on sudoPrimedMsg, and the update
-// centre's apply resumes its own command sequence when the credential is its to
-// read, so the command, its prompt and the credential it caches are one thing
-// spelled once rather than two prompts that could drift. It is a variable so a
-// test can answer it without handing a password prompt the terminal.
-var sudoTerminalExec = sudoTerminalExecCmd
-
-func sudoTerminalExecCmd(respond func(error) tea.Msg) tea.Cmd {
-	c := exec.Command(sudoTerminalCommand, "-v")
-	return tea.ExecProcess(c, respond)
-}
-
-// defaultSudoTerminalPrimer runs `sudo -v` with the terminal attached. It is now
-// the one moment a run gives the terminal to a child process, and it happens only
-// when the user asks for it: sudo writes the cached credential it later reads
-// non-interactively, and the interface comes straight back to the screen.
-func defaultSudoTerminalPrimer() tea.Cmd {
-	return sudoTerminalExec(func(err error) tea.Msg {
-		return sudoPrimedMsg{err: err}
-	})
-}
-
-// sudoTerminalAsk is the same handover in the form a caller *outside* the program
-// can use: `sudo -v` with this process's terminal attached, waited on in place.
-//
-// The program's form is tea.ExecProcess because the screen has to be released and
-// restored around the child; a caller that is not inside the program has no screen
-// to release and nothing to restore, so attaching the terminal it already owns is
-// the whole of the handover. Both run the command above, which is why the ask,
-// its prompt and the credential it caches are one thing rather than two.
-var sudoTerminalAsk = defaultSudoTerminalAsk
-
-// defaultSudoTerminalAsk runs `sudo -v` on the terminal this process inherited and
-// waits for it, which is the whole of the handover when there is no screen to
-// release. Its error is sudo's refusal, and it is reported rather than retried.
-func defaultSudoTerminalAsk() error {
-	return system.RunTerminal(sudoTerminalCommand+" -v", nil).Error
-}
-
 // sudoPrimedMsg reports the outcome of the single credential request.
-type sudoPrimedMsg struct{ err error }
+//
+// attempt is the number of the attempt made on the installer's password screen, or
+// zero for the probe that asks whether a credential is already cached. It is what
+// lets a reply be matched to the screen that asked: a reply whose attempt has been
+// cancelled, or whose run has moved on, is a straggler and must not resume a flow
+// a second time.
+type sudoPrimedMsg struct {
+	err     error
+	attempt int
+}
 
 // sudoCredentialCheckMsg is the answer to the run's probe question: nil when sudo
 // already holds a credential it can use without asking.
@@ -180,20 +132,17 @@ func sudoRefreshCmd() tea.Cmd {
 // first `sudo -n apt-get update` came back with "a password is required" on a
 // machine that would have asked for one -- which is the failure this closes.
 //
-// The order is the run's, and so is the means: `sudo -n -v` first, because a
-// machine whose sudo already has what it needs must never be prompted, and `sudo
-// -v` with the terminal attached only when it does not, so the user types the
-// password where sudo reads it. Nothing is stored, and no password travels through
-// this program: it goes from the person to sudo, on the terminal sudo owns.
+// The order is the run's: `sudo -n -v` first, because a machine whose sudo already
+// has what it needs must never be prompted, and nothing at all where it does not.
+// This route has no screen -- it is the one that runs without the interface -- and
+// the installer does not hand the terminal over to ask the question for it, so
+// there is nothing here to type a password into. What it can do, and does, is say
+// what is missing: the command that needs root then reports itself through
+// `sudo -n`, in the manager's own words, which is the report the user can act on.
 //
 // It asks at most once per run. A run that already made its request -- succeeded
 // or failed -- is left alone, because a failed ask that repeats is the loop the
-// run avoids, and a step without the credential reports itself through `sudo -n`,
-// which is the report the user can act on.
-//
-// The ask attaches the terminal, so it belongs to a caller that owns it: the
-// scripted route. Inside the program the step loop has already made the request
-// through sudoTerminalPrimer, and the flags this reads are what stop a second one.
+// run avoids.
 func (m *Model) primeSudoForStep() error {
 	if dryRun() {
 		return nil
@@ -212,14 +161,13 @@ func (m *Model) primeSudoForStep() error {
 		return nil
 	}
 
-	if err := sudoTerminalAsk(); err != nil {
-		return fmt.Errorf("the administrator credential was not cached: %w", err)
-	}
-	if m != nil {
-		m.SudoPrimed = true
-	}
-	return nil
+	return errors.New(credentialUnavailableMessage)
 }
+
+// credentialUnavailableMessage is what a route with no screen reports when sudo
+// has no credential it can use. It names both ways out: cache it where sudo can
+// ask, or run the installer that can ask on its own screen.
+const credentialUnavailableMessage = "the administrator credential is not cached, and this run has no screen to ask for it on: run `sudo -v` in your own terminal before starting it, or start the installer interactively so it asks on its own screen"
 
 // runStepScript is the seam that runs a generated step script through the
 // captured executor. It is a variable so a test can prove the dispatch without

@@ -828,9 +828,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.CelebrationTick = 0
 		m.Particles = nil
 		// A new run asks for the credential again and may offer the WSL decision
-		// again: both are facts about this run, not about the model's whole life.
+		// again: both are facts about this run, not about the model's whole life. The
+		// password screen belongs to the run that put it up, so nothing of it carries
+		// over -- the field is emptied and cleared here rather than left to the screen
+		// that is no longer being drawn.
 		m.SudoPrimed = false
 		m.SudoPrimeAttempted = false
+		m.CredentialAsk = credentialAskNone
+		m.AdminPasswordPending = false
+		m.clearAdminPassword()
 		m.WSLTerminalOfferDone = false
 		// Start the installation process
 		cmd := m.runNextStep()
@@ -1175,12 +1181,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The command stopped writing. Nothing is left to read: the result itself is
 		// what carries the outcome, and this message only ends the read loop.
 		return m, nil
-
-	case updateCenterCredentialMsg:
-		// The terminal ask's answer, for a run that had to be asked: the confirmed
-		// sequence starts either way, and a refusal is reported by the manager's own
-		// `sudo -n` rather than by a second question here.
-		return m.updateCenterHandleCredential(msg)
 
 	case wslResourceLoadedMsg:
 		// The first read fills the state once: a later answer arriving after the
@@ -1559,42 +1559,33 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sudoCredentialCheckMsg:
 		// The update centre's apply asked the run's probe question before its first
 		// root command: a credential sudo already holds starts the sequence, and a
-		// machine that would have to ask gets the terminal handover.
+		// machine that would have to ask gets the installer's own password screen.
 		return m.updateCenterHandleCredentialCheck(msg)
 
 	case sudoNeedsPasswordMsg:
 		// sudo has no credential it can use without a password. The installer asks
 		// for it on its own screen, so nothing is handed over and the terminal stays
 		// where it is. The field is a []byte of fixed capacity: see AdminPassword.
-		m.AdminPassword = make([]byte, 0, adminPasswordCapacity)
-		m.AdminPasswordErr = ""
-		m.Screen = ScreenAdminPassword
-		m.LogLines = append(m.LogLines, "Administrator access: type the password on this screen; the installer does not leave it to ask.")
+		m.askAdminPassword(credentialAskStepLoop)
 		return m, nil
 
 	case sudoPrimedMsg:
-		// An attempt made from the installer's own screen. sudo has already read
-		// whatever the field held and those bytes are already cleared, so the field
-		// starts empty for a retry. A refusal stays on the screen rather than
-		// becoming a loop: only the user starts another attempt.
-		if m.Screen == ScreenAdminPassword {
-			m.AdminPassword = m.AdminPassword[:0]
-			if msg.err != nil {
-				m.AdminPasswordErr = msg.err.Error()
-				m.LogLines = append(m.LogLines, "⚠️  "+msg.err.Error())
+		// An answer to an attempt made on the installer's own screen belongs to that
+		// attempt and no other. A reply that arrives after the screen was released --
+		// cancelled, or answered by a run that has already moved on -- is a straggler,
+		// and resuming a flow on it would start that flow twice.
+		if msg.attempt != 0 {
+			if m.Screen != ScreenAdminPassword || msg.attempt != m.AdminPasswordAttempt {
 				return m, nil
 			}
-			m.AdminPasswordErr = ""
-			m.Screen = ScreenInstalling
-			m.SudoPrimed = true
-			m.LogLines = append(m.LogLines, "✓ Administrator credential cached for this run.")
-			return m, tea.Batch(m.runNextStep(), sudoKeepAliveTickCmd())
+			return m.answerAdminPassword(msg)
 		}
 
-		// The one credential request has returned. Whether it succeeded or not,
-		// the run continues: a step that needs root without the credential fails
-		// visibly through sudo -n instead of prompting where the user cannot see
-		// it. A success keeps the run's credential refreshed while it works.
+		// The probe's answer: the one credential request, made before the run needed
+		// it. Whether it succeeded or not, the run continues: a step that needs root
+		// without the credential fails visibly through sudo -n instead of prompting
+		// where the user cannot see it. A success keeps the run's credential
+		// refreshed while it works.
 		if msg.err != nil {
 			m.SudoPrimed = false
 			m.LogLines = append(m.LogLines, fmt.Sprintf("⚠️  Administrator credential was not cached (%v). Steps that need root will report it.", msg.err))
@@ -1714,8 +1705,15 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.MenuKeyBuffer = ""
 	}
 
-	// ctrl+c always quits immediately (no leader needed)
+	// ctrl+c always quits immediately (no leader needed) -- except on the password
+	// screen, where it is the second way to stop waiting for sudo. A run that is
+	// waiting on an answer must be releasable with the key that stops everything
+	// else; quitting from under a prompt that is still in flight would be neither a
+	// report nor a release.
 	if key == "ctrl+c" {
+		if m.Screen == ScreenAdminPassword {
+			return m.updateAdminPassword(msg)
+		}
 		m.Quitting = true
 		return m, tea.Quit
 	}
@@ -1779,7 +1777,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// install, where the global meanings of these keys would take a character away
 	// from the field: space would open the leader key instead of being typed,
 	// backspace would mean "back" instead of deleting, and escape would leave the
-	// screen rather than offer the way out it is meant to offer. Taking the
+	// run rather than stop waiting for a credential it cannot get. Taking the
 	// dispatch here, before any of them, is what keeps the field a field.
 	if m.Screen == ScreenAdminPassword {
 		return m.updateAdminPassword(msg)
@@ -4657,8 +4655,9 @@ func (m *Model) shouldPrimeSudo(stepID string) bool {
 
 // sudoPrimeCmd asks for the administrator credential once and records that the
 // ask is visible on the installing screen. The prompt is what makes the rest of
-// the run possible without owning the terminal: once sudo holds the cached
-// credential, every step's `sudo -n` needs no TTY.
+// the run possible without owning the terminal: the password is typed on the
+// installer's own screen, sudo reads it from its standard input, and once it holds
+// the cached credential every step's `sudo -n` needs no TTY.
 func (m *Model) sudoPrimeCmd() tea.Cmd {
 	m.SudoPrimeAttempted = true
 	m.LogLines = append(m.LogLines, "Administrator access: one password prompt will cover the whole run.")

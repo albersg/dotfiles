@@ -143,9 +143,10 @@ var (
 	hintUndo  = installerHint{"[u]", "undo"}
 	// The password screen's Enter is an attempt rather than a selection, so it names
 	// its own pair instead of borrowing the wizard's: "select" there would say the
-	// opposite of what the key does.
+	// opposite of what the key does. Its Escape stops waiting for the password and
+	// lets the run report what the missing credential costs, which is a cancel and
+	// not a way to be asked somewhere else.
 	hintValidate = installerHint{"[Enter]", "validate"}
-	hintTerminal = installerHint{"[Esc]", "ask in the terminal"}
 	hintCancel   = installerHint{"[Esc]", "cancel"}
 	// hintQuit quits the whole program and hintExit ends a finished run. Both run
 	// on q, their own letter: Enter opens and chooses, so it cannot also leave.

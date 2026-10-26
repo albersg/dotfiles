@@ -5421,9 +5421,13 @@ func sudoPasswordUnavailable(result *system.ExecResult) bool {
 // other failure keeps the step visible as a failure.
 func dependencyInstallError(m *Model, deps platformPackages, result *system.ExecResult) error {
 	if sudoPasswordUnavailable(result) {
+		// The report names both ways out, because the run that reached this line had
+		// no screen to ask on: `--non-interactive` is the route that does not carry
+		// one, and the interface is the route that does.
 		return wrapStepError("deps", "Install Dependencies",
-			fmt.Sprintf("Installing dependencies needs root, and sudo could not ask for a password in this run.\n"+
-				"Run these commands in a terminal, then run the installer again:\n\n%s\n\n"+
+			fmt.Sprintf("Installing dependencies needs root, and this run has no screen to ask for the administrator password on.\n"+
+				"Run the installer without --non-interactive and it will ask on its own screen, or\n"+
+				"run these commands in a terminal and then run the installer again:\n\n%s\n\n"+
 				"To skip installing dependencies instead, set %s=1 and run the installer again.",
 				dependencyManualCommands(m, deps), envSkipDeps),
 			nil)
@@ -5485,10 +5489,14 @@ func stepInstallDeps(m *Model) error {
 	// The credential comes before the first command that needs it, and only when
 	// the plan runs one: the scripted route reaches this step without the step
 	// loop's one request, and its `sudo -n` has nothing cached to read. A plan that
-	// installs through Homebrew or pkg is user-scoped, so it asks for nothing. A
-	// refused ask does not abort the step -- the command reports the missing
-	// credential where the user can read it, exactly as a run that was never primed
-	// did, and dependencyInstallError names the commands to run by hand.
+	// installs through Homebrew or pkg is user-scoped, so it asks for nothing.
+	//
+	// On this route there is no screen to type a password on, and the installer does
+	// not hand the terminal over to ask: the probe answers "already cached" or this
+	// logs what is missing. Either way the step keeps going -- the command reports
+	// the credential it lacks through `sudo -n`, where the user can read it, exactly
+	// as a run that was never primed did, and dependencyInstallError names the
+	// commands to run by hand.
 	if plan.needsRoot() {
 		if err := m.primeSudoForStep(); err != nil {
 			SendLog(stepID, "⚠️  "+err.Error()+". A command that needs root will report it.")

@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -47,9 +49,13 @@ func TestThePasswordReachesSudoWithoutATerminal(t *testing.T) {
 	password := []byte("correct horse battery staple")
 	original := append([]byte(nil), password...)
 
-	msg := defaultSudoPasswordPrimer(password)()
-	if _, ok := msg.(sudoPrimedMsg); !ok {
+	msg := defaultSudoPasswordPrimer(password, 7)()
+	primed, ok := msg.(sudoPrimedMsg)
+	if !ok {
 		t.Fatalf("the attempt produced %T, want sudoPrimedMsg", msg)
+	}
+	if primed.attempt != 7 {
+		t.Fatalf("the answer carries attempt %d, want the 7 the screen numbered it with, so a straggler can be told apart", primed.attempt)
 	}
 
 	args, err := os.ReadFile(argsFile)
@@ -97,7 +103,7 @@ func TestARejectedPasswordIsNotEchoedOrLeftBehind(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	password := []byte("wrong horse")
-	msg := defaultSudoPasswordPrimer(password)()
+	msg := defaultSudoPasswordPrimer(password, 1)()
 
 	primed, ok := msg.(sudoPrimedMsg)
 	if !ok {
@@ -198,41 +204,116 @@ func TestTheFieldShowsHowMuchIsTypedAndNotWhat(t *testing.T) {
 	}
 }
 
-// TestEscapeLeavesTheTerminalHandoverReachable pins S3. A system whose PAM needs a
-// terminal cannot be authenticated through `sudo -S`, and that must be a way out
-// rather than a dead end: escape offers the handover the installer used before.
-func TestEscapeLeavesTheTerminalHandoverReachable(t *testing.T) {
-	original := sudoTerminalPrimer
-	t.Cleanup(func() { sudoTerminalPrimer = original })
-
-	offered := 0
-	sudoTerminalPrimer = func() tea.Cmd {
-		offered++
-		return func() tea.Msg { return sudoPrimedMsg{} }
-	}
-
+// TestEscapeReleasesTheScreenInsteadOfAskingElsewhere pins the one way out that
+// does not leave the interface. Escape used to hand the terminal to `sudo -v` for a
+// system whose PAM wants one; that handover is what put the prompt in the shell and
+// then hung, so Escape now stops waiting: the field is cleared, the reason is on the
+// run's own record, and the flow that asked resumes so its root command reports the
+// credential it lacks.
+func TestEscapeReleasesTheScreenInsteadOfAskingElsewhere(t *testing.T) {
 	m := Model{
 		Screen:        ScreenAdminPassword,
 		AdminPassword: append(make([]byte, 0, adminPasswordCapacity), []byte("typed")...),
 		LogLines:      []string{},
+		Steps:         []InstallStep{{ID: "deps", Name: "Install Dependencies"}},
 	}
+	m.askAdminPassword(credentialAskStepLoop)
+	m.AdminPassword = append(m.AdminPassword[:0], []byte("typed")...)
 
 	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = result.(Model)
 
-	if offered != 1 {
-		t.Fatalf("escape offered the handover %d times, want exactly 1", offered)
+	if m.Screen == ScreenAdminPassword {
+		t.Fatal("escape left the run on the password screen, so the wait never ends")
+	}
+	if len(m.AdminPassword) != 0 {
+		t.Fatalf("the field still holds %q after escape, so the typed password stays in the model", m.AdminPassword)
+	}
+	if m.CredentialAsk != credentialAskNone {
+		t.Fatal("escape left the credential ask recorded, so a later answer could resume the run a second time")
+	}
+	if m.SudoPrimed {
+		t.Fatal("a cancelled request is recorded as a cached credential")
+	}
+	if !m.SudoPrimeAttempted {
+		t.Fatal("a cancelled request is not recorded as asked, so the run would ask again in a loop")
+	}
+	joined := strings.Join(m.LogLines, "\n")
+	if !strings.Contains(joined, "not given") {
+		t.Fatalf("the run's record does not say why the credential is missing:\n%s", joined)
+	}
+	if !strings.Contains(joined, "will report it") {
+		t.Fatalf("the run's record does not say what happens next:\n%s", joined)
 	}
 	if cmd == nil {
-		t.Fatal("escape offered no handover, so a system that cannot use sudo -S has no way forward")
+		t.Fatal("escape released the screen but resumed nothing, so the run would stop without a report")
 	}
-	for i, b := range m.AdminPassword {
-		if b != 0 {
-			t.Fatalf("byte %d of the password buffer survives escape, so the typed password stays in memory", i)
-		}
+}
+
+// TestCtrlCWhileAskingReleasesTheScreenInsteadOfQuitting pins the second way out.
+// ctrl+c quits everywhere else, and on this screen it must not: a run waiting for
+// an answer has to end in a state the user can read, and a program that quits from
+// under a prompt in flight is neither a report nor a release.
+func TestCtrlCWhileAskingReleasesTheScreenInsteadOfQuitting(t *testing.T) {
+	m := Model{
+		Screen:   ScreenInstalling,
+		LogLines: []string{},
+		Steps:    []InstallStep{{ID: "deps", Name: "Install Dependencies"}},
 	}
-	if !strings.Contains(strings.Join(m.LogLines, "\n"), "terminal") {
-		t.Fatalf("the screen does not say where the password is about to be asked:\n%s", strings.Join(m.LogLines, "\n"))
+	m.askAdminPassword(credentialAskStepLoop)
+	m.AdminPassword = append(m.AdminPassword, []byte("half typed")...)
+	m.AdminPasswordPending = true
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = result.(Model)
+
+	if m.Quitting {
+		t.Fatal("ctrl+c quit the program from the password screen instead of releasing it")
+	}
+	if m.Screen == ScreenAdminPassword {
+		t.Fatal("ctrl+c left the run waiting on the password screen")
+	}
+	if len(m.AdminPassword) != 0 {
+		t.Fatalf("the field still holds %q after ctrl+c", m.AdminPassword)
+	}
+	joined := strings.Join(m.LogLines, "\n")
+	if !strings.Contains(joined, "cancelled") {
+		t.Fatalf("the run's record does not say the attempt was cancelled:\n%s", joined)
+	}
+}
+
+// TestAnAnswerToACancelledAttemptIsDiscarded pins the other side of cancelling: the
+// attempt that was in flight still answers, and that answer must not resume a flow
+// the run has already resumed -- a second resume would run the step loop twice.
+func TestAnAnswerToACancelledAttemptIsDiscarded(t *testing.T) {
+	m := Model{Screen: ScreenInstalling, LogLines: []string{}, Steps: []InstallStep{{ID: "deps", Name: "Install Dependencies"}}}
+	m.askAdminPassword(credentialAskStepLoop)
+	m.AdminPassword = append(m.AdminPassword, []byte("typed")...)
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if cmd == nil || !m.AdminPasswordPending {
+		t.Fatal("Enter did not start an attempt, so this guard measures nothing")
+	}
+	attempt := m.AdminPasswordAttempt
+
+	// The user cancels while sudo still has the bytes.
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+	before := len(m.LogLines)
+
+	// And then the answer lands.
+	result, follow := m.Update(sudoPrimedMsg{attempt: attempt, err: errors.New("too late")})
+	m = result.(Model)
+
+	if follow != nil {
+		t.Fatal("a cancelled attempt's answer resumed the flow a second time")
+	}
+	if len(m.LogLines) != before {
+		t.Fatalf("a cancelled attempt's answer was still written to the run's record: %v", m.LogLines[before:])
+	}
+	if m.SudoPrimed {
+		t.Fatal("a cancelled attempt's answer primed the run")
 	}
 }
 
@@ -340,5 +421,281 @@ func TestTheScreenSaysWhatToTypeAndThatEnterValidates(t *testing.T) {
 		if !strings.Contains(midway, want) {
 			t.Fatalf("with something typed the screen stopped saying %q:\n%s", want, typed.renderAdminPassword())
 		}
+	}
+}
+
+// fakeSudoScript puts a `sudo` at the front of PATH whose body is body, so an
+// attempt can be measured against a child process that refuses, hangs or ignores
+// its standard input without any of those being the real sudo.
+func fakeSudoScript(t *testing.T, body string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte(script), 0o700); err != nil {
+		t.Fatalf("writing the fake sudo: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// messageWithin runs one command and fails the test when it does not answer inside
+// limit. It is how "no hang" is measured rather than asserted: a command that never
+// returns takes the whole test binary down with it, and a failed test says which
+// wait was left open.
+func messageWithin(t *testing.T, cmd tea.Cmd, limit time.Duration) tea.Msg {
+	t.Helper()
+
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	select {
+	case msg := <-done:
+		return msg
+	case <-time.After(limit):
+		t.Fatalf("the attempt did not answer within %s, so a stuck sudo froze the run", limit)
+		return nil
+	}
+}
+
+// TestARefusedPasswordReleasesTheScreenWithTheReason pins the reported shape of a
+// wrong password. It is not a second question and it is not a wait: the answer is
+// turned into a line on the run, the screen goes, and the flow that asked resumes
+// so its command reports the credential it lacks through `sudo -n` -- in the
+// manager's own words, which is the report the user can act on.
+func TestARefusedPasswordReleasesTheScreenWithTheReason(t *testing.T) {
+	fakeSudoScript(t, "cat > /dev/null\necho 'sudo: 1 incorrect password attempt' >&2\nexit 1")
+
+	m := Model{Screen: ScreenInstalling, LogLines: []string{}, Steps: []InstallStep{{ID: "deps", Name: "Install Dependencies"}}}
+	m.askAdminPassword(credentialAskStepLoop)
+	m.AdminPassword = append(m.AdminPassword, []byte("wrong horse")...)
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+	if cmd == nil {
+		t.Fatal("Enter started no attempt, so this guard measures nothing")
+	}
+	if !m.AdminPasswordPending {
+		t.Fatal("the attempt is not recorded as in flight, so the screen cannot say it is waiting")
+	}
+
+	answer := messageWithin(t, cmd, 10*time.Second)
+	result, _ = m.Update(answer)
+	m = result.(Model)
+
+	if m.Screen == ScreenAdminPassword {
+		t.Fatal("a refused password left the run waiting on the password screen")
+	}
+	if m.AdminPasswordPending {
+		t.Fatal("the screen is released but still recorded as waiting for sudo")
+	}
+	if m.SudoPrimed {
+		t.Error("a refused password is recorded as a cached credential")
+	}
+	if len(m.AdminPassword) != 0 {
+		t.Errorf("the field still holds %q after the attempt", m.AdminPassword)
+	}
+	joined := strings.Join(m.LogLines, "\n")
+	if !strings.Contains(joined, "not accepted") {
+		t.Fatalf("the run's record does not carry the reason the attempt failed:\n%s", joined)
+	}
+	if !strings.Contains(joined, "will report it") {
+		t.Fatalf("the run's record does not say what happens next:\n%s", joined)
+	}
+	if strings.Contains(joined, "incorrect password attempt") {
+		t.Fatalf("the run's record repeats sudo's stderr, which names the account and the host:\n%s", joined)
+	}
+}
+
+// TestAStuckSudoCannotFreezeTheScreen pins the bound. A sudo that ignores its
+// standard input -- the case a `Defaults requiretty` or an askpass-only
+// configuration produces -- never answers, and the wait is what turns that into a
+// line on the run instead of a screen that never returns.
+func TestAStuckSudoCannotFreezeTheScreen(t *testing.T) {
+	original := sudoPasswordTimeout
+	t.Cleanup(func() { sudoPasswordTimeout = original })
+	sudoPasswordTimeout = 100 * time.Millisecond
+
+	fakeSudoScript(t, "exec sleep 30")
+
+	m := Model{Screen: ScreenInstalling, LogLines: []string{}, Steps: []InstallStep{{ID: "deps", Name: "Install Dependencies"}}}
+	m.askAdminPassword(credentialAskStepLoop)
+	m.AdminPassword = append(m.AdminPassword, []byte("any password")...)
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+
+	answer := messageWithin(t, cmd, 10*time.Second)
+	primed, ok := answer.(sudoPrimedMsg)
+	if !ok {
+		t.Fatalf("the stopped attempt produced %T, want sudoPrimedMsg", answer)
+	}
+	if primed.err == nil {
+		t.Fatal("a sudo that never answered reported success")
+	}
+	if !strings.Contains(primed.err.Error(), "in time") {
+		t.Fatalf("the stopped attempt does not say it was stopped: %v", primed.err)
+	}
+
+	result, _ = m.Update(answer)
+	m = result.(Model)
+	if m.Screen == ScreenAdminPassword {
+		t.Fatal("a sudo that never answered left the run waiting on the password screen")
+	}
+	if !strings.Contains(strings.Join(m.LogLines, "\n"), "in time") {
+		t.Fatalf("the run's record does not say the attempt was stopped:\n%s", strings.Join(m.LogLines, "\n"))
+	}
+}
+
+// TestThePasswordNeverReachesTheScreenTheLogOrAModelCopy pins the promise the whole
+// path exists to keep: the bytes exist for as long as sudo takes to read them and
+// nowhere else. The screen is checked mid-attempt as well as after it, because the
+// screen is the one place a mistake would be visible to somebody standing behind
+// the user.
+func TestThePasswordNeverReachesTheScreenTheLogOrAModelCopy(t *testing.T) {
+	const password = "correct-horse-battery-staple"
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "sudo accepts it", body: "cat > /dev/null\nexit 0"},
+		{name: "sudo refuses it", body: "cat > /dev/null\necho 'sudo: 3 incorrect password attempts' >&2\nexit 1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeSudoScript(t, tc.body)
+
+			m := Model{Screen: ScreenInstalling, LogLines: []string{}, Steps: []InstallStep{{ID: "deps", Name: "Install Dependencies"}}}
+			m.askAdminPassword(credentialAskStepLoop)
+			m.AdminPassword = append(m.AdminPassword, []byte(password)...)
+
+			// The screen the user is looking at while sudo has the bytes.
+			if drawn := m.renderAdminPassword(); strings.Contains(drawn, password) {
+				t.Fatalf("the password screen draws the password:\n%s", drawn)
+			}
+
+			result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m = result.(Model)
+			if drawn := m.renderAdminPassword(); strings.Contains(drawn, password) {
+				t.Fatalf("the password screen draws the password while the attempt is in flight:\n%s", drawn)
+			}
+
+			answer := messageWithin(t, cmd, 10*time.Second)
+			result, _ = m.Update(answer)
+			m = result.(Model)
+
+			if len(m.AdminPassword) != 0 {
+				t.Fatalf("the model kept %d bytes of the password after the attempt", len(m.AdminPassword))
+			}
+			for _, line := range m.LogLines {
+				if strings.Contains(line, password) {
+					t.Fatalf("a log line carries the password: %q", line)
+				}
+			}
+			if strings.Contains(m.ErrorMsg, password) {
+				t.Fatalf("the run's error carries the password: %q", m.ErrorMsg)
+			}
+			if primed, ok := answer.(sudoPrimedMsg); ok && primed.err != nil {
+				if strings.Contains(primed.err.Error(), password) {
+					t.Fatalf("the answer carries the password: %v", primed.err)
+				}
+			}
+		})
+	}
+}
+
+// TestThePromptAppearsForBothFlows pins that both callers ask in the same place and
+// on the same screen, and that the answer is routed back to the flow that asked
+// rather than to whichever one happens to be waiting.
+func TestThePromptAppearsForBothFlows(t *testing.T) {
+	cases := []struct {
+		name string
+		flow credentialAskFlow
+		msg  tea.Msg
+	}{
+		{name: "the deps step's step loop", flow: credentialAskStepLoop, msg: sudoNeedsPasswordMsg{}},
+		{name: "the update centre's apply", flow: credentialAskUpdateCenter, msg: sudoCredentialCheckMsg{err: errors.New("sudo: a password is required")}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Model{Screen: ScreenInstalling, LogLines: []string{}}
+			if tc.flow == credentialAskUpdateCenter {
+				m.Screen = ScreenUpdateCenter
+				m.UpdateCenter.Applying = true
+			}
+
+			result, _ := m.Update(tc.msg)
+			m = result.(Model)
+
+			if m.Screen != ScreenAdminPassword {
+				t.Fatalf("the run stayed on %v, want the installer's own password screen", m.Screen)
+			}
+			if m.CredentialAsk != tc.flow {
+				t.Fatalf("the screen recorded flow %v, want %v: the answer would resume the wrong one", m.CredentialAsk, tc.flow)
+			}
+			if cap(m.AdminPassword) != adminPasswordCapacity || len(m.AdminPassword) != 0 {
+				t.Fatalf("the field is capacity %d len %d, want an empty field of the fixed %d", cap(m.AdminPassword), len(m.AdminPassword), adminPasswordCapacity)
+			}
+			if !strings.Contains(strings.Join(m.LogLines, "\n"), "on this screen") {
+				t.Fatalf("the screen's arrival is not on the run's record:\n%s", strings.Join(m.LogLines, "\n"))
+			}
+		})
+	}
+}
+
+// TestTheCredentialPathNeverHandsTheTerminalOver pins the shape of the fix at the
+// source, because the failure it replaces -- a prompt in the outer shell that then
+// hung -- is invisible to any guard that only reads the model. The files on this
+// path may not use the two mechanisms that hand the terminal to a child.
+func TestTheCredentialPathNeverHandsTheTerminalOver(t *testing.T) {
+	for _, path := range []string{"admin_password.go", "interactive.go", "update_center.go"} {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		// The call, not the word: interactive.go keeps the type that names the
+		// handover this program no longer makes, and naming it is what the guard
+		// against its return is built on.
+		for _, forbidden := range []string{"tea.ExecProcess", "system.RunTerminal"} {
+			if strings.Contains(string(source), forbidden) {
+				t.Fatalf("%s uses %s, which hands the terminal to a child and is the handover this path no longer makes", path, forbidden)
+			}
+		}
+	}
+}
+
+// TestASudoThatNeedsATerminalSaysSoAndReleasesTheScreen pins the one case the
+// in-screen prompt genuinely cannot cover: a PAM configuration that demands a
+// terminal -- a two-factor or fingerprint module, or an old `Defaults requiretty` --
+// refuses standard input however right the password is. The refusal is sudo's, and
+// it is turned into a line that says what happened, on a screen that goes, so the
+// run reports it instead of dead-ending on a prompt that cannot succeed.
+func TestASudoThatNeedsATerminalSaysSoAndReleasesTheScreen(t *testing.T) {
+	fakeSudoScript(t, "cat > /dev/null\necho 'sudo: no tty present and no askpass program specified' >&2\nexit 1")
+
+	m := Model{Screen: ScreenInstalling, LogLines: []string{}, Steps: []InstallStep{{ID: "deps", Name: "Install Dependencies"}}}
+	m.askAdminPassword(credentialAskStepLoop)
+	m.AdminPassword = append(m.AdminPassword, []byte("a correct password")...)
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+
+	answer := messageWithin(t, cmd, 10*time.Second)
+	primed, ok := answer.(sudoPrimedMsg)
+	if !ok || primed.err == nil {
+		t.Fatalf("a sudo that needs a terminal reported %v, want a failure", answer)
+	}
+	if !strings.Contains(primed.err.Error(), "without a terminal") {
+		t.Fatalf("the refusal does not say what this machine needs: %v", primed.err)
+	}
+	if strings.Contains(primed.err.Error(), "no tty present") {
+		t.Fatalf("the refusal repeats sudo's own words instead of saying what it means: %v", primed.err)
+	}
+
+	result, _ = m.Update(answer)
+	m = result.(Model)
+	if m.Screen == ScreenAdminPassword {
+		t.Fatal("a machine that cannot be authenticated on this screen was left waiting on it")
 	}
 }

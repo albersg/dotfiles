@@ -108,10 +108,11 @@ const (
 	// of writing over a file another program owns.
 	ScreenUpdate // The published release, beside this build
 	// The administrator password. Appended at the end for the same reason as the
-	// screens above. It is reached from the installing screen rather than from the
-	// menu: the first step that needs root puts it up, so the terminal is never
-	// handed over to ask for the credential. Escape offers the handover instead,
-	// for a system whose PAM insists on a terminal.
+	// screens above. It is reached from the installing screen and from the update
+	// centre's apply rather than from the menu: the first command that needs root
+	// puts it up, so the terminal is never handed over to ask for the credential.
+	// Escape stops waiting for it and lets the run report what the missing
+	// credential costs.
 	ScreenAdminPassword // The administrator password, typed on the installer's own screen
 	// What the run will install. Appended at the end for the same reason as the
 	// screens above. It is the wizard's last step rather than a question: after the
@@ -696,10 +697,19 @@ type Model struct {
 	// grow would reallocate and leave the bytes in an array nothing can reach.
 	AdminPassword []byte
 
-	// AdminPasswordErr is the line the password screen shows when an attempt was
-	// refused. It carries the outcome and never the password, and never sudo's own
-	// stderr, which names the invoking account and the host.
-	AdminPasswordErr string
+	// AdminPasswordPending records that an attempt is in flight: sudo was handed the
+	// bytes and has not answered yet. While it is set the field takes no second
+	// attempt, and the two cancel keys are what release a sudo that never answers.
+	AdminPasswordPending bool
+
+	// AdminPasswordAttempt numbers the attempts made on the password screen. It
+	// travels with the answer so a reply that arrives after the screen was released
+	// is discarded instead of resuming a run that has already resumed.
+	AdminPasswordAttempt int
+
+	// CredentialAsk records which flow put the password screen up -- the step loop
+	// or the update centre's apply -- so the answer resumes the one that asked.
+	CredentialAsk credentialAskFlow
 	// TerminalCapabilities is the terminal capability report: what the terminal
 	// the installer is running in can do, where each answer came from, and what
 	// it implies. It is read by a command only when the capability screen is
