@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/albersg/dotfiles/installer/internal/system"
@@ -239,14 +240,27 @@ func (c *Center) Apply(ctx context.Context, plan Plan, onLine func(string)) Appl
 	if onLine != nil {
 		sink = func(line string) { onLine(RedactLine(line)) }
 	}
-	output := runner.Run(ctx, plan.Command, sink)
+	commands := plan.Sequence()
+	var last Output
+	var lines []string
+	for _, cmd := range commands {
+		last = runner.Run(ctx, cmd, sink)
+		lines = append(lines, last.Text())
+		// A refresh that failed stops the sequence: the install would only fail
+		// again on the same stale metadata, and the refresh's own reason is the
+		// one worth reporting.
+		if st, _ := Classify(last); st == StatusFailed || st == StatusCancelled {
+			break
+		}
+	}
+	output := last
 	status, reason := Classify(output)
 
 	result := ApplyResult{
 		Plan:     plan,
 		Status:   status,
 		Reason:   reason,
-		Output:   output.Text(),
+		Output:   strings.Join(lines, "\n"),
 		Command:  plan.Display(),
 		Duration: output.Duration.String(),
 	}

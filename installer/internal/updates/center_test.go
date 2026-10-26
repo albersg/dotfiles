@@ -396,7 +396,14 @@ func TestASystemManagerPlanIsElevatedAndNonInteractive(t *testing.T) {
 	if !hasEnv(plan.Command.Env, "DEBIAN_FRONTEND=noninteractive") {
 		t.Fatalf("apt must be told not to prompt, env is %q", plan.Command.Env)
 	}
-	if !strings.Contains(plan.Notes[0], "configuration files") {
+	dpkgNote := false
+	for _, note := range plan.Notes {
+		if strings.Contains(note, "configuration files") {
+			dpkgNote = true
+			break
+		}
+	}
+	if !dpkgNote {
 		t.Fatalf("the plan must state what dpkg does with configuration files, got %q", plan.Notes)
 	}
 }
@@ -545,6 +552,7 @@ func TestApplyReportsACancelledRunAsUnknown(t *testing.T) {
 
 	runner := &fakeRunner{answers: map[string]Output{
 		QuoteArgv(plan.Command.Argv): {ExitCode: -1, Err: errors.New("signal: interrupt"), Cancelled: true},
+		QuoteArgv([]string{"apt-get", "update"}): ok("Hit:1 http://deb.debian.org/debian stable InRelease\n"),
 		QuoteArgv([]string{"apt-get", "--simulate", "-o", "Debug::NoLocking=1", "upgrade"}): ok("Inst curl [8.7.0] (8.7.1 Debian:13/stable [amd64])\n"),
 		QuoteArgv([]string{"apt-mark", "showhold"}):                                         ok(""),
 	}}
@@ -557,7 +565,7 @@ func TestApplyReportsACancelledRunAsUnknown(t *testing.T) {
 	if result.Outcomes[0].Step != StepUnknown {
 		t.Fatalf("an interrupted entry is unknown, got %s (%s)", result.Outcomes[0].Step, result.Outcomes[0].Detail)
 	}
-	if len(runner.calls) != 3 {
+	if len(runner.calls) != 4 {
 		t.Fatalf("the re-read must happen even after a cancelled run, ran %d commands", len(runner.calls))
 	}
 }

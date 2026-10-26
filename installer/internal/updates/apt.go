@@ -253,22 +253,31 @@ func (a AptAdapter) Plan(items []Item, env Env) (Plan, error) {
 	for _, item := range items {
 		argv = append(argv, item.Name)
 	}
+	install := Command{
+		Argv:    argv,
+		Elevate: true,
+		Env:     []string{"DEBIAN_FRONTEND=noninteractive"},
+		Timeout: applyTimeout,
+	}
+	refresh := Command{
+		Argv:    []string{"apt-get", "update"},
+		Elevate: true,
+		Env:     []string{"DEBIAN_FRONTEND=noninteractive"},
+		Timeout: applyTimeout,
+	}
 	return Plan{
-		Manager: ManagerApt,
-		Scope:   ScopeSystem,
-		Kind:    KindPackage,
-		Command: Command{
-			Argv:    argv,
-			Elevate: true,
-			Env:     []string{"DEBIAN_FRONTEND=noninteractive"},
-			Timeout: applyTimeout,
-		},
+		Manager:  ManagerApt,
+		Scope:    ScopeSystem,
+		Kind:     KindPackage,
+		Command:  install,
+		Commands: []Command{refresh, install},
 		Items: items,
 		Restart: "A kernel, a C library or a service package keeps the running version until the machine or the " +
 			"service is restarted; this run restarts nothing and does not reboot.",
 		Rollback: "apt keeps a downloaded .deb only while its cache holds it, and the previous version is usually no " +
 			"longer downloadable, so a downgrade is not a rollback.",
 		Notes: []string{
+			"apt refreshes its package lists first (`apt-get update`), so the upgrade reads the metadata that is on the network now; a failed refresh stops before the upgrade.",
 			"dpkg is told to keep your existing configuration files and never prompt (`--force-confdef --force-confold`).",
 			"apt resolves dependencies itself and may install or move packages the selection did not name.",
 			"apt holds its own lock while this runs; another apt or dpkg running at the same time makes it refuse, and nothing here runs two managers at once.",

@@ -213,6 +213,11 @@ type Plan struct {
 	// There is no shell anywhere on this path: a package name is an argument, so
 	// no name can become a second command.
 	Command Command
+	// Commands is the sequence the plan runs, in order, when one program is not
+	// enough: a manager that must refresh its metadata first puts the refresh here
+	// and the install last. A plan that needs one program leaves this empty and
+	// Command is that command.
+	Commands []Command
 	// Items are the entries this command would move.
 	Items []Item
 	// Restart is what the manager says, or what is known, about what keeps the
@@ -236,19 +241,40 @@ type Plan struct {
 // priming their credential.
 const sudoDisplayPrefix = "sudo -n -- "
 
+// Sequence is the plan's commands in the order they run. A plan that needs one
+// program answers with Command alone.
+func (p Plan) Sequence() []Command {
+	if len(p.Commands) > 0 {
+		return p.Commands
+	}
+	return []Command{p.Command}
+}
+
 // Display is the command as a reader would type it, elevation included. Arguments
 // that need quoting are quoted for the eye only; nothing here is ever handed to a
 // shell.
 func (p Plan) Display() string {
-	if p.Command.Elevate {
-		return sudoDisplayPrefix + QuoteArgv(p.Command.Argv)
+	parts := make([]string, 0, 1)
+	for _, c := range p.Sequence() {
+		if c.Elevate {
+			parts = append(parts, sudoDisplayPrefix+QuoteArgv(c.Argv))
+			continue
+		}
+		parts = append(parts, QuoteArgv(c.Argv))
 	}
-	return QuoteArgv(p.Command.Argv)
+	return strings.Join(parts, " && ")
 }
 
 // Elevation reports whether this plan needs an administrator. It is what the
 // confirmation screen names, and what the runner turns into sudo.
-func (p Plan) Elevation() bool { return p.Command.Elevate }
+func (p Plan) Elevation() bool {
+	for _, c := range p.Sequence() {
+		if c.Elevate {
+			return true
+		}
+	}
+	return false
+}
 
 // OutcomeStep is how far one entry of a selection got. The three steps are the
 // distinction the update center exists to make: a selection is a request, a
