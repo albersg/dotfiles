@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The administrator password is asked inside the installer, and the installer never leaves the screen for it.** The terminal handover (`tea.ExecProcess` handing the terminal to `sudo -v`) opened the shell's own prompt and could freeze the run. The credential is asked on the installer's admin-password screen now: the masked field feeds `sudo -S` on the child's standard input — never its arguments, never a log line — and a bounded, kill-based wait turns a refused, slow or silent `sudo` into the manager's own reason in the run report. Enter makes one attempt, Esc cancels, ctrl+c releases, and none of them can leave the screen waiting on something that cannot succeed. Both paths that install packages (the deps step and the update centre's apply) use it, and a machine whose credential is already cached is never asked.
+
 ## [v0.12.0] — 2026-10-20
 
 ### Changed

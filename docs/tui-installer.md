@@ -1586,14 +1586,15 @@ The prompt is a masked field on a screen of its own, so the terminal is never ha
 process and the interface does not disappear and come back. It says what to do with the keyboard
 rather than leaving the field to be guessed at: an empty field reads `type it here`, the line above
 it names the action (`Type your administrator password and press Enter.`), and the two keys are
-named for what they do on this screen -- `[Enter] validate` and `[Esc] ask in the terminal` --
+named for what they do on this screen -- `[Enter] validate` and `[Esc] cancel` --
 because Enter here is an attempt and not a selection. The password reaches sudo on the
 child's **standard input** (`sudo -S`) rather than in its arguments, it is never written to a log
 line, and the only copy the installer holds lives in a fixed-capacity buffer that is cleared as
-soon as sudo has read it. A password that is refused stays on the screen to be retyped, and **Esc**
-asks in the terminal instead: a system whose PAM needs a terminal — a two-factor or fingerprint
-module, or a legacy `Defaults requiretty` — cannot be authenticated through standard input, and
-that path stays reachable rather than becoming a dead end.
+soon as sudo has read it. Every outcome releases the screen: an accepted password resumes the
+flow, and a refused one, a sudo that demands a terminal, a sudo that ignores stdin or a wait that
+outlives the bound all report the manager's own reason where the run is, so a wrong password
+cannot leave the installer waiting on a screen that cannot succeed. Nothing on this path hands
+the terminal to sudo: the prompt is the installer's own, at every width.
 
 **An install preserves the theme the machine has applied, and that is a step of its own.** Every step
 that writes a configuration file writes the file this repository ships, and those carry the **default**
