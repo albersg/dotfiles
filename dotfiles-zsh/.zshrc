@@ -370,6 +370,19 @@ plugins=(
 )
 source "$ZSH/oh-my-zsh.sh"
 
+# The oh-my-zsh `command-not-found` plugin installs Homebrew's handler, which
+# runs `brew which-formula --explain` -- a network/API lookup -- BEFORE it
+# prints anything, so a typo waits seconds for the message. Print at once; the
+# Homebrew suggestion is opt-in with DOTFILES_BREW_SUGGEST=1.
+command_not_found_handler() {
+  if [[ -n "${DOTFILES_BREW_SUGGEST:-}" ]]; then
+    homebrew_command_not_found_handle "$@"
+    return $?
+  fi
+  print -u2 "zsh: command not found: $1"
+  return 127
+}
+
 # Third-party plugins: syntax highlighting must be loaded last.
 if [[ $IS_TERMUX -eq 1 ]]; then
     # Termux - plugins installed via pkg
