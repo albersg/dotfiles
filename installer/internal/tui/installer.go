@@ -7534,12 +7534,12 @@ func stepInstallShell(m *Model) error {
 		fishConfig := filepath.Join(homeDir, ".config", "fish", "config.fish")
 		preservedFish, err := system.ReplaceUserConfig(filepath.Join(repoDir, repoAssetFish, "config.fish"), fishConfig,
 			"# dotfiles-managed-config: fish", filepath.Join(homeDir, ".config", "fish", "dotfiles.d"),
-			"dotfiles-user-config", ".fish.bak")
+			"dotfiles-user-config", ".fish")
 		if err != nil {
 			return wrapStepError("shell", "Install Fish", "Failed to preserve existing Fish configuration", err)
 		}
 		if preservedFish != "" {
-			SendLog(stepID, fmt.Sprintf("Preserved your existing Fish configuration at %s; it is kept as a backup and is not sourced.", preservedFish))
+			SendLog(stepID, fmt.Sprintf("Preserved your existing Fish configuration at %s; dotfiles loads it last from ~/.config/fish/dotfiles.d/.", preservedFish))
 		}
 		if err := system.CopyFile(filepath.Join(repoDir, repoAssetStarship), filepath.Join(homeDir, ".config/starship.toml")); err != nil {
 			return wrapStepError("shell", "Install Fish",
