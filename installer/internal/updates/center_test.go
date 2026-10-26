@@ -551,7 +551,7 @@ func TestApplyReportsACancelledRunAsUnknown(t *testing.T) {
 	plan := plans[0]
 
 	runner := &fakeRunner{answers: map[string]Output{
-		QuoteArgv(plan.Command.Argv): {ExitCode: -1, Err: errors.New("signal: interrupt"), Cancelled: true},
+		QuoteArgv(plan.Command.Argv):             {ExitCode: -1, Err: errors.New("signal: interrupt"), Cancelled: true},
 		QuoteArgv([]string{"apt-get", "update"}): ok("Hit:1 http://deb.debian.org/debian stable InRelease\n"),
 		QuoteArgv([]string{"apt-get", "--simulate", "-o", "Debug::NoLocking=1", "upgrade"}): ok("Inst curl [8.7.0] (8.7.1 Debian:13/stable [amd64])\n"),
 		QuoteArgv([]string{"apt-mark", "showhold"}):                                         ok(""),

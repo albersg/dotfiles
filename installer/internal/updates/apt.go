@@ -271,7 +271,7 @@ func (a AptAdapter) Plan(items []Item, env Env) (Plan, error) {
 		Kind:     KindPackage,
 		Command:  install,
 		Commands: []Command{refresh, install},
-		Items: items,
+		Items:    items,
 		Restart: "A kernel, a C library or a service package keeps the running version until the machine or the " +
 			"service is restarted; this run restarts nothing and does not reboot.",
 		Rollback: "apt keeps a downloaded .deb only while its cache holds it, and the previous version is usually no " +
